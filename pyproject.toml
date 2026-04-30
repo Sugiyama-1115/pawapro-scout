@@ -26,5 +26,7 @@ packages = ["src/pawapro_scout"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-mock>=3.15.1",
+    "requests-mock>=1.12.1",
     "ruff>=0.4",
 ]

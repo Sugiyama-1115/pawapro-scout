@@ -88,10 +88,10 @@ class PybaseballFetcher(BaseFetcher):
         )
 
     def get_pitcher_active_spin(self) -> pd.DataFrame:
-        """投手 Active Spin (球種別スピン効率)"""
+        """投手 Spin Direction Comparison (球種別スピン方向・効率)"""
         return self._cached_fetch(
             "league/pybaseball__pitcher_active_spin",
-            lambda: pybaseball.statcast_pitcher_active_spin(year=self.season),
+            lambda: pybaseball.statcast_pitcher_spin_dir_comp(year=self.season),
         )
 
     def get_batting_stats_fg(self) -> pd.DataFrame:
