@@ -1,0 +1,30 @@
+[project]
+name = "pawapro-scout"
+version = "0.1.0"
+description = "MLB選手の指標を取得しパワプロ能力査定を自動算出するツール"
+requires-python = ">=3.13"
+dependencies = [
+    "pybaseball>=2.2.7",
+    "pandas>=2.2",
+    "pyarrow>=15.0",
+    "openpyxl>=3.1",
+    "requests>=2.32",
+    "tenacity>=9.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+pawapro-scout = "pawapro_scout.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pawapro_scout"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
