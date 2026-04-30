@@ -1,0 +1,2 @@
+# pawapro-scout
+メジャーリーガーの指標をBaseballSavantなどで取得し、パワプロの能力査定を実施するプロジェクト
