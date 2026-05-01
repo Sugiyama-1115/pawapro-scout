@@ -1,0 +1,545 @@
+"""
+tests/test_assess_pitcher.py
+投手査定 (basic / pitch_classifier / rank_abilities / gold / blue / red) のテスト。
+外部データ不要 — PitcherStats と PitchAggregated のスタブのみ使用。
+"""
+
+import pytest
+from dataclasses import replace
+
+from pawapro_scout.assess.pitcher.basic import (
+    assess_basic,
+    _assess_velocity,
+    _assess_control,
+    _assess_stamina,
+)
+from pawapro_scout.assess.pitcher.pitch_classifier import (
+    classify_pitches,
+    _classify,
+    _calc_henka,
+)
+from pawapro_scout.assess.pitcher.rank_abilities import assess_rank_abilities
+from pawapro_scout.assess.pitcher.gold_special import assess_gold_special
+from pawapro_scout.assess.pitcher.blue_special import assess_blue_special
+from pawapro_scout.assess.pitcher.red_special import assess_red_special
+from pawapro_scout.models import PitchAggregated, PitchEntry, PitcherStats
+
+
+# ──────────────────────────────────────────────
+# スタブ生成ヘルパー
+# ──────────────────────────────────────────────
+
+def make_stats(**kwargs) -> PitcherStats:
+    defaults = dict(
+        max_velocity_mph=97.0,
+        pitches=[],
+        k_percent=26.0,
+        bb_percent=7.0,
+        k_percentile=85,
+        bb_percentile=60,
+        avg_pitches_per_game=95.0,
+        games=30,
+        ip=170.0,
+        games_started=28,
+        exit_vel_percentile=75,
+        hard_hit_percent=35.0,
+        extension_percentile=80,
+        active_spin_4seam=None,
+        lob_percent=72.0,
+        hr_per_9=1.0,
+        wpa=2.0,
+        ir_stranded_pct=None,
+        risp_xwoba=0.310,
+        season_xwoba=0.320,
+        vs_lhp_xwoba=0.300,
+        vs_rhp_xwoba=0.330,
+        high_lev_xwoba=0.310,
+        inning1_xwoba=0.310,
+        inning7plus_xwoba=0.300,
+        pitch_100plus_rv=0.0,
+        low_zone_pct=35.0,
+        heart_zone_pct=25.0,
+        release_x_stddev=0.3,
+        release_z_stddev=0.3,
+        pickoffs=2,
+        p_oaa=1,
+        sb_against=15,
+        cs_against=5,
+    )
+    defaults.update(kwargs)
+    return PitcherStats(**defaults)
+
+
+def make_pitch(pt="FF", usage=50.0, vel=96.0, whiff=25.0, hb=-8.0, ivb=14.0, dv=0.0, rv=-1.0):
+    return PitchAggregated(
+        pitch_type=pt,
+        usage_pct=usage,
+        velocity_avg=vel,
+        whiff_pct=whiff,
+        horizontal_break=hb,
+        induced_vertical_break=ivb,
+        delta_v_from_fastball=dv,
+        rv_per_100=rv,
+    )
+
+
+# ══════════════════════════════════════════════
+# 1. basic.py
+# ══════════════════════════════════════════════
+
+class TestBasicVelocity:
+    def test_mph_to_kmh_conversion(self):
+        assert _assess_velocity(97.0) == round(97.0 * 1.60934)
+
+    def test_common_value(self):
+        # 97 mph ≈ 156 km/h
+        assert _assess_velocity(97.0) == 156
+
+    def test_100mph(self):
+        # 100 mph ≈ 161 km/h
+        assert _assess_velocity(100.0) == 161
+
+
+class TestBasicControl:
+    def test_s_rank_very_low_bb(self):
+        assert _assess_control(3.0) == "S"
+
+    def test_a_rank(self):
+        assert _assess_control(4.5) == "A"
+
+    def test_b_rank(self):
+        assert _assess_control(6.0) == "B"
+
+    def test_c_rank(self):
+        assert _assess_control(7.5) == "C"
+
+    def test_g_rank_high_bb(self):
+        assert _assess_control(20.0) == "G"
+
+    def test_boundary_s_a(self):
+        # 3.5 → S (= threshold)
+        assert _assess_control(3.5) == "S"
+        # 3.6 → A (threshold 超え)
+        assert _assess_control(3.6) == "A"
+
+
+class TestBasicStamina:
+    def test_starter_s_rank(self):
+        stats = make_stats(avg_pitches_per_game=102.0, games=30, games_started=28)
+        assert _assess_stamina(stats) == "S"
+
+    def test_starter_c_rank(self):
+        stats = make_stats(avg_pitches_per_game=87.0, games=30, games_started=28)
+        assert _assess_stamina(stats) == "C"
+
+    def test_starter_none_defaults_to_c(self):
+        stats = make_stats(avg_pitches_per_game=None, games=30, games_started=28)
+        assert _assess_stamina(stats) == "C"
+
+    def test_reliever_s_rank(self):
+        stats = make_stats(games=70, games_started=0)
+        assert _assess_stamina(stats) == "S"
+
+    def test_reliever_d_rank(self):
+        # 45 games: breakpoints[65,60,55,50,40,...] → 45 は 40以上50未満 → D
+        stats = make_stats(games=45, games_started=0)
+        assert _assess_stamina(stats) == "D"
+
+    def test_reliever_c_rank(self):
+        # 50 games: 50以上 → C
+        stats = make_stats(games=50, games_started=0)
+        assert _assess_stamina(stats) == "C"
+
+    def test_assess_basic_returns_pitcher_basic(self):
+        from pawapro_scout.models import PitcherBasic
+        stats = make_stats()
+        result = assess_basic(stats)
+        assert isinstance(result, PitcherBasic)
+
+
+# ══════════════════════════════════════════════
+# 2. pitch_classifier.py
+# ══════════════════════════════════════════════
+
+class TestPitchClassify:
+    # ── fastball ──
+    def test_ff_is_straight(self):
+        assert _classify(make_pitch("FF")) == "ストレート"
+
+    def test_fa_is_straight(self):
+        assert _classify(make_pitch("FA")) == "ストレート"
+
+    # ── slider family ──
+    def test_sl_small_hb_is_v_slider(self):
+        # abs(HB) < 4 → Vスライダー
+        p = make_pitch("SL", hb=3.0, ivb=5.0, dv=8.0)
+        assert _classify(p) == "Vスライダー"
+
+    def test_st_large_hb_is_sweeper(self):
+        # abs(HB) >= 15 AND HB > |IVB| → スイーパー
+        p = make_pitch("ST", hb=16.0, ivb=5.0, dv=10.0)
+        assert _classify(p) == "スイーパー"
+
+    def test_sl_low_dv_is_h_slider(self):
+        # abs(HB) >= 4, HB < 15, ΔV <= 5
+        p = make_pitch("SL", hb=8.0, ivb=3.0, dv=4.0)
+        assert _classify(p) == "Hスライダー"
+
+    def test_sl_normal_is_slider(self):
+        p = make_pitch("SL", hb=8.0, ivb=3.0, dv=8.0)
+        assert _classify(p) == "スライダー"
+
+    # ── sinker family ──
+    def test_si_low_dv_small_hb_is_two_seam(self):
+        p = make_pitch("SI", hb=8.0, dv=1.5)
+        assert _classify(p) == "ツーシーム"
+
+    def test_si_low_dv_large_hb_is_highspeed_sinker(self):
+        p = make_pitch("SI", hb=12.0, dv=3.5)
+        assert _classify(p) == "高速シンカー"
+
+    def test_si_large_dv_is_sinker(self):
+        p = make_pitch("SI", hb=10.0, dv=5.0)
+        assert _classify(p) == "シンカー"
+
+    # ── splitter family ──
+    def test_fs_small_dv_is_sff(self):
+        p = make_pitch("FS", dv=5.0)
+        assert _classify(p) == "SFF"
+
+    def test_fs_large_dv_is_fork(self):
+        p = make_pitch("FS", dv=9.0)
+        assert _classify(p) == "フォーク"
+
+    # ── changeup ──
+    def test_ch_large_hb_is_circle_change(self):
+        p = make_pitch("CH", hb=12.0)
+        assert _classify(p) == "サークルチェンジ"
+
+    def test_ch_small_hb_is_changeup(self):
+        p = make_pitch("CH", hb=7.0)
+        assert _classify(p) == "チェンジアップ"
+
+    # ── cutter ──
+    def test_fc_small_hb_is_cutball(self):
+        p = make_pitch("FC", hb=4.0)
+        assert _classify(p) == "カットボール"
+
+    def test_fc_large_hb_is_h_slider(self):
+        p = make_pitch("FC", hb=7.0)
+        assert _classify(p) == "Hスライダー"
+
+    # ── curveball / knuckleball ──
+    def test_cu_is_curve(self):
+        assert _classify(make_pitch("CU")) == "カーブ"
+
+    def test_kc_is_curve(self):
+        assert _classify(make_pitch("KC")) == "カーブ"
+
+    def test_kn_is_knuckle(self):
+        assert _classify(make_pitch("KN")) == "ナックル"
+
+    # ── unknown ──
+    def test_un_is_fume(self):
+        assert _classify(make_pitch("UN")) == "不明"
+
+
+class TestCalcHenka:
+    def test_high_whiff_base_7(self):
+        p = make_pitch(whiff=50.0, rv=-3.0)
+        assert _calc_henka(p) == 7  # base=7, bonus+1 → clamp 7
+
+    def test_high_whiff_no_bonus(self):
+        p = make_pitch(whiff=46.0, rv=0.0)
+        assert _calc_henka(p) == 7  # base=7, no adj
+
+    def test_mid_whiff_base_5(self):
+        p = make_pitch(whiff=38.0, rv=0.0)
+        assert _calc_henka(p) == 5
+
+    def test_low_whiff_base_3(self):
+        p = make_pitch(whiff=22.0, rv=0.0)
+        assert _calc_henka(p) == 3
+
+    def test_very_low_whiff_base_1(self):
+        p = make_pitch(whiff=10.0, rv=0.0)
+        assert _calc_henka(p) == 1
+
+    def test_rv_bonus_adds_1(self):
+        p = make_pitch(whiff=22.0, rv=-3.0)  # base=3, bonus+1 → 4
+        assert _calc_henka(p) == 4
+
+    def test_rv_penalty_subtracts_1(self):
+        p = make_pitch(whiff=22.0, rv=3.0)  # base=3, penalty-1 → 2
+        assert _calc_henka(p) == 2
+
+    def test_clamped_minimum_1(self):
+        p = make_pitch(whiff=10.0, rv=3.0)  # base=1, penalty → clamp to 1
+        assert _calc_henka(p) == 1
+
+    def test_clamped_maximum_7(self):
+        p = make_pitch(whiff=50.0, rv=-5.0)  # base=7, bonus → clamp 7
+        assert _calc_henka(p) == 7
+
+
+class TestClassifyPitches:
+    def test_returns_list_of_pitch_entry(self):
+        pitches = [make_pitch("FF"), make_pitch("SL", hb=8.0, dv=8.0)]
+        result = classify_pitches(pitches)
+        assert all(isinstance(e, PitchEntry) for e in result)
+
+    def test_unknown_excluded(self):
+        pitches = [make_pitch("FF"), make_pitch("UN")]
+        result = classify_pitches(pitches)
+        names = [e.名称 for e in result]
+        assert "不明" not in names
+        assert "ストレート" in names
+
+    def test_empty_input(self):
+        assert classify_pitches([]) == []
+
+
+# ══════════════════════════════════════════════
+# 3. rank_abilities.py
+# ══════════════════════════════════════════════
+
+class TestRankAbilities:
+    def test_returns_6_keys(self):
+        result = assess_rank_abilities(make_stats())
+        assert set(result.keys()) == {"打たれ強さ", "回復", "クイック", "対ピンチ", "対左打者", "ノビ"}
+
+    def test_打たれ強さ_gold_at_99th(self):
+        stats = make_stats(exit_vel_percentile=99)
+        assert assess_rank_abilities(stats)["打たれ強さ"] == "金"
+
+    def test_打たれ強さ_s_at_90th(self):
+        stats = make_stats(exit_vel_percentile=92)
+        assert assess_rank_abilities(stats)["打たれ強さ"] == "A"
+
+    def test_ノビ_gold_at_99th(self):
+        stats = make_stats(k_percentile=99)
+        assert assess_rank_abilities(stats)["ノビ"] == "金"
+
+    def test_対ピンチ_gold_on_great_diff(self):
+        # risp - season = -0.090 → 金
+        stats = make_stats(risp_xwoba=0.230, season_xwoba=0.320)
+        assert assess_rank_abilities(stats)["対ピンチ"] == "金"
+
+    def test_対ピンチ_g_on_bad_diff(self):
+        # risp - season = +0.100 → G
+        stats = make_stats(risp_xwoba=0.420, season_xwoba=0.320)
+        assert assess_rank_abilities(stats)["対ピンチ"] == "G"
+
+    def test_クイック_gold_on_high_cs_rate(self):
+        # CS率 45% → 金
+        stats = make_stats(sb_against=11, cs_against=9)
+        assert assess_rank_abilities(stats)["クイック"] == "金"
+
+    def test_クイック_default_c_on_no_data(self):
+        stats = make_stats(sb_against=0, cs_against=0)
+        assert assess_rank_abilities(stats)["クイック"] == "C"
+
+    def test_回復_c_when_ir_is_none(self):
+        stats = make_stats(ir_stranded_pct=None)
+        assert assess_rank_abilities(stats)["回復"] == "C"
+
+    def test_回復_s_on_high_ir(self):
+        stats = make_stats(ir_stranded_pct=92.0)
+        assert assess_rank_abilities(stats)["回復"] == "S"
+
+
+# ══════════════════════════════════════════════
+# 4. gold_special.py
+# ══════════════════════════════════════════════
+
+class TestGoldSpecial:
+    def test_doctor_k_at_99th(self):
+        stats = make_stats(k_percentile=99)
+        assert "ドクターK" in assess_gold_special(stats)
+
+    def test_doctor_k_not_at_90th(self):
+        stats = make_stats(k_percentile=95)
+        assert "ドクターK" not in assess_gold_special(stats)
+
+    def test_monster_stuff_at_99th(self):
+        stats = make_stats(exit_vel_percentile=99)
+        assert "怪物球威" in assess_gold_special(stats)
+
+    def test_hengenjizai_large_speed_range(self):
+        pitches = [
+            make_pitch("FF", vel=98.0),
+            make_pitch("CH", vel=75.0),  # 差 23mph >= 20
+        ]
+        stats = make_stats(pitches=pitches)
+        assert "変幻自在" in assess_gold_special(stats)
+
+    def test_hengenjizai_not_on_small_range(self):
+        pitches = [
+            make_pitch("FF", vel=97.0),
+            make_pitch("SL", vel=88.0),  # 差 9mph < 20
+        ]
+        stats = make_stats(pitches=pitches)
+        assert "変幻自在" not in assess_gold_special(stats)
+
+    def test_kaido_on_high_ivb(self):
+        pitches = [make_pitch("FF", ivb=22.0)]
+        stats = make_stats(pitches=pitches)
+        assert "怪童" in assess_gold_special(stats)
+
+    def test_kaido_not_on_normal_ivb(self):
+        pitches = [make_pitch("FF", ivb=14.0)]
+        stats = make_stats(pitches=pitches)
+        assert "怪童" not in assess_gold_special(stats)
+
+    def test_no_gold_on_average_stats(self):
+        result = assess_gold_special(make_stats())
+        assert result == []
+
+
+# ══════════════════════════════════════════════
+# 5. blue_special.py
+# ══════════════════════════════════════════════
+
+class TestBlueSpecial:
+    def test_datsusansen_on_high_k(self):
+        stats = make_stats(k_percent=30.0)
+        assert "奪三振" in assess_blue_special(stats)
+
+    def test_datsusansen_not_on_low_k(self):
+        stats = make_stats(k_percent=24.0)
+        assert "奪三振" not in assess_blue_special(stats)
+
+    def test_release_maru_on_small_std(self):
+        stats = make_stats(release_x_stddev=0.2, release_z_stddev=0.2)
+        assert "リリース◯" in assess_blue_special(stats)
+
+    def test_release_maru_not_on_large_std(self):
+        stats = make_stats(release_x_stddev=0.8, release_z_stddev=0.8)
+        assert "リリース◯" not in assess_blue_special(stats)
+
+    def test_kankyuu_maru_on_sufficient_diff(self):
+        pitches = [make_pitch("FF", vel=97.0), make_pitch("CH", vel=80.0)]  # 17mph
+        stats = make_stats(pitches=pitches)
+        assert "緩急◯" in assess_blue_special(stats)
+
+    def test_kankyuu_maru_not_when_hengenjizai(self):
+        # 20mph以上 → 変幻自在で 緩急◯ は付かない
+        pitches = [make_pitch("FF", vel=98.0), make_pitch("CH", vel=75.0)]  # 23mph
+        stats = make_stats(pitches=pitches)
+        assert "緩急◯" not in assess_blue_special(stats)
+
+    def test_tamamochichu_on_high_extension(self):
+        stats = make_stats(extension_percentile=92)
+        assert "球持ち◯" in assess_blue_special(stats)
+
+    def test_emergency_maru_on_high_ir(self):
+        stats = make_stats(ir_stranded_pct=85.0)
+        assert "緊急登板◯" in assess_blue_special(stats)
+
+    def test_low_zone_maru(self):
+        stats = make_stats(low_zone_pct=42.0)
+        assert "低め◯" in assess_blue_special(stats)
+
+    def test_nigeball(self):
+        stats = make_stats(heart_zone_pct=18.0)
+        assert "逃げ球" in assess_blue_special(stats)
+
+    def test_nigeball_not_when_zero(self):
+        # データなし (0.0) → 付与しない
+        stats = make_stats(heart_zone_pct=0.0)
+        assert "逃げ球" not in assess_blue_special(stats)
+
+    def test_natural_shoot_on_ff_large_hb(self):
+        pitches = [make_pitch("FF", hb=12.0)]
+        stats = make_stats(pitches=pitches)
+        assert "ナチュラルシュート" in assess_blue_special(stats)
+
+    def test_runner_maru(self):
+        # risp - season = -0.040 <= -0.030
+        stats = make_stats(risp_xwoba=0.280, season_xwoba=0.320)
+        assert "対ランナー◯" in assess_blue_special(stats)
+
+    def test_tachiagarimaru(self):
+        # inning1 - season = -0.060 <= -0.040
+        stats = make_stats(inning1_xwoba=0.260, season_xwoba=0.320)
+        assert "立ち上がり◯" in assess_blue_special(stats)
+
+    def test_jiriagari(self):
+        stats = make_stats(inning7plus_xwoba=0.290, season_xwoba=0.320)
+        assert "尻上がり" in assess_blue_special(stats)
+
+    def test_yodokoro_maru(self):
+        stats = make_stats(high_lev_xwoba=0.260, season_xwoba=0.320)
+        assert "要所◯" in assess_blue_special(stats)
+
+    def test_no_blue_on_poor_conditions(self):
+        # データなし・閾値未達の stats → 文脈依存の青特は付かない
+        stats = make_stats(
+            k_percent=24.0,           # 奪三振: 28%未満 → 付かない
+            extension_percentile=70,  # 球持ち◯: 90th未満 → 付かない
+            ir_stranded_pct=None,     # 緊急登板◯: データなし → 付かない
+            low_zone_pct=30.0,        # 低め◯: 40%未満 → 付かない
+            heart_zone_pct=0.0,       # 逃げ球: データなし → 付かない
+            inning1_xwoba=0.320,      # 立ち上がり◯: 差分なし → 付かない
+            risp_xwoba=0.320,         # 対ランナー◯: 差分なし → 付かない
+        )
+        result = assess_blue_special(stats)
+        assert "奪三振" not in result
+        assert "球持ち◯" not in result
+        assert "緊急登板◯" not in result
+        assert "低め◯" not in result
+        assert "立ち上がり◯" not in result
+        assert "対ランナー◯" not in result
+
+
+# ══════════════════════════════════════════════
+# 6. red_special.py
+# ══════════════════════════════════════════════
+
+class TestRedSpecial:
+    def test_shikyu_on_high_bb(self):
+        stats = make_stats(bb_percent=12.0)
+        assert "四球" in assess_red_special(stats)
+
+    def test_shikyu_not_on_low_bb(self):
+        stats = make_stats(bb_percent=7.0)
+        assert "四球" not in assess_red_special(stats)
+
+    def test_karui_tama_on_high_hard_hit(self):
+        stats = make_stats(hard_hit_percent=48.0)
+        assert "軽い球" in assess_red_special(stats)
+
+    def test_nukeball_on_large_stddev(self):
+        stats = make_stats(release_x_stddev=1.2, release_z_stddev=1.0)
+        assert "抜け球" in assess_red_special(stats)
+
+    def test_nukeball_not_on_small_stddev(self):
+        stats = make_stats(release_x_stddev=0.3, release_z_stddev=0.3)
+        assert "抜け球" not in assess_red_special(stats)
+
+    def test_slow_starter(self):
+        # inning1 - season = +0.060 >= +0.050
+        stats = make_stats(inning1_xwoba=0.380, season_xwoba=0.320)
+        assert "スロースターター" in assess_red_special(stats)
+
+    def test_runner_bad(self):
+        # risp - season = +0.040 >= +0.030
+        stats = make_stats(risp_xwoba=0.360, season_xwoba=0.320)
+        assert "対ランナー×" in assess_red_special(stats)
+
+    def test_no_red_on_good_stats(self):
+        stats = make_stats(
+            bb_percent=5.0,
+            hard_hit_percent=35.0,
+            release_x_stddev=0.3,
+            release_z_stddev=0.3,
+            inning1_xwoba=0.300,
+            risp_xwoba=0.300,
+            season_xwoba=0.320,
+        )
+        assert assess_red_special(stats) == []
+
+    def test_runner_bad_not_triggered_when_season_zero(self):
+        """season_xwoba が 0.0 のとき (データなし) は判定しない"""
+        stats = make_stats(risp_xwoba=0.400, season_xwoba=0.0)
+        assert "対ランナー×" not in assess_red_special(stats)
