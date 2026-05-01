@@ -20,6 +20,8 @@ class PlayerInput:
     name_en_last: str = ""      # /resolve-players Skill が補完
     name_en_first: str = ""
     mlbam_id: int = 0           # 0 = 未解決
+    position: str = "OF"        # C/1B/2B/3B/SS/LF/CF/RF/DH/SP/RP
+    role: str = "batter"        # batter / pitcher / both
 
 
 # ────────────────────────────────────────────────

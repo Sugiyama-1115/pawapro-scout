@@ -5,10 +5,14 @@ cli.py
 
 from __future__ import annotations
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from rich.console import Console
+
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -92,6 +96,8 @@ def load_players(csv_path: Path, player_filter: str | None):
             name_en_last=str(row.get("name_en_last", "")),
             name_en_first=str(row.get("name_en_first", "")),
             mlbam_id=int(row["mlbam_id"]),
+            position=str(row.get("position", "OF") or "OF"),
+            role=str(row.get("role", "batter") or "batter"),
         )
         for _, row in df.iterrows()
     ]
@@ -114,5 +120,25 @@ def main() -> None:
 
     console.print(f"対象選手: {len(players)} 名")
 
-    # Pipeline はPhase6で実装 (スタブ)
-    console.print("[yellow]パイプラインは未実装です (Phase 6 で追加予定)[/yellow]")
+    from pawapro_scout.pipeline import Pipeline
+
+    pipeline = Pipeline(
+        season=args.season,
+        output_dir=args.output_dir,
+        force_refresh=args.force_refresh,
+    )
+
+    errors: list[str] = []
+    for player in players:
+        try:
+            pipeline.run(player)
+        except Exception as e:
+            console.print(f"[red]✗ {player.name_jp} 失敗: {e}[/red]")
+            errors.append(player.name_jp)
+            logger.exception(f"{player.name_jp} 処理中にエラー")
+
+    if errors:
+        console.print(f"\n[red]失敗した選手: {', '.join(errors)}[/red]")
+        sys.exit(1)
+    else:
+        console.print("\n[bold green]全選手の処理が完了しました ✓[/bold green]")

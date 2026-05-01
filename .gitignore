@@ -1,6 +1,6 @@
 # キャッシュ・出力 (gitignore対象)
 cache/
-output/
+/output/
 
 # Python
 __pycache__/

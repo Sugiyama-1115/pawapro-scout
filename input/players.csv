@@ -1,4 +1,4 @@
-season,team,name_jp,name_en_last,name_en_first,mlbam_id
-2025,LAD,大谷翔平,,,
-2025,LAD,山本由伸,,,
-2025,NYY,アーロン・ジャッジ,,,
+season,team,name_jp,name_en_last,name_en_first,mlbam_id,position,role
+2025,LAD,大谷翔平,,,,,both
+2025,LAD,山本由伸,,,,,pitcher
+2025,NYY,アーロン・ジャッジ,,,,,batter
