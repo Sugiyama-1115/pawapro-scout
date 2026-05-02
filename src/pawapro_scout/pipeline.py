@@ -124,7 +124,7 @@ class Pipeline:
         self._save_json(record, player)
         self._save_excel(player, L, player_batter, player_pitcher)
 
-        console.print(f"[green]  ✓ {player.name_jp} 完了[/green]")
+        console.print(f"[green]  [OK] {player.name_jp} 完了[/green]")
         return record
 
     # ──────────────────────────────────────────────
@@ -135,24 +135,36 @@ class Pipeline:
         if self._league is not None:
             return
         console.print("[cyan]リーグデータを取得中...[/cyan]")
-        lb = self.savant_lb.fetch_all()
+
+        def _safe(name: str, fn) -> pd.DataFrame:
+            """取得失敗時は警告のみ出して空DataFrameを返す。"""
+            try:
+                return fn()
+            except Exception as e:
+                logger.warning(f"{name} 取得失敗（空DataFrameで継続）: {e}")
+                return pd.DataFrame()
+
+        lb = _safe("savant_leaderboards", self.savant_lb.fetch_all)
+        if not isinstance(lb, dict):
+            lb = {}
+
         self._league = {
-            "batter_expected":     self.pyb.get_batter_expected_stats(),
-            "pitcher_expected":    self.pyb.get_pitcher_expected_stats(),
-            "batter_percentile":   self.pyb.get_batter_percentile_ranks(),
-            "pitcher_percentile":  self.pyb.get_pitcher_percentile_ranks(),
-            "sprint_speed":        self.pyb.get_sprint_speed(),
-            "outs_above_average":  self.pyb.get_outs_above_average(),
-            "catcher_poptime":     self.pyb.get_catcher_poptime(),
-            "pitcher_active_spin": self.pyb.get_pitcher_active_spin(),
-            "batting_stats_fg":    self.pyb.get_batting_stats_fg(),
-            "pitching_stats_fg":   self.pyb.get_pitching_stats_fg(),
-            "batting_stats_bref":  self.pyb.get_batting_stats_bref(),
-            "pitching_stats_bref": self.pyb.get_pitching_stats_bref(),
+            "batter_expected":     _safe("batter_expected_stats",    self.pyb.get_batter_expected_stats),
+            "pitcher_expected":    _safe("pitcher_expected_stats",   self.pyb.get_pitcher_expected_stats),
+            "batter_percentile":   _safe("batter_percentile_ranks",  self.pyb.get_batter_percentile_ranks),
+            "pitcher_percentile":  _safe("pitcher_percentile_ranks", self.pyb.get_pitcher_percentile_ranks),
+            "sprint_speed":        _safe("sprint_speed",             self.pyb.get_sprint_speed),
+            "outs_above_average":  _safe("outs_above_average",       self.pyb.get_outs_above_average),
+            "catcher_poptime":     _safe("catcher_poptime",          self.pyb.get_catcher_poptime),
+            "pitcher_active_spin": _safe("pitcher_active_spin",      self.pyb.get_pitcher_active_spin),
+            "batting_stats_fg":    _safe("batting_stats_fg",         self.pyb.get_batting_stats_fg),
+            "pitching_stats_fg":   _safe("pitching_stats_fg",        self.pyb.get_pitching_stats_fg),
+            "batting_stats_bref":  _safe("batting_stats_bref",       self.pyb.get_batting_stats_bref),
+            "pitching_stats_bref": _safe("pitching_stats_bref",      self.pyb.get_pitching_stats_bref),
             # Savant leaderboards (7種)
             **lb,
         }
-        console.print("[green]  ✓ リーグデータ取得完了[/green]")
+        console.print("[green]  [OK] リーグデータ取得完了[/green]")
 
     # ──────────────────────────────────────────────
     # 選手別データ取得

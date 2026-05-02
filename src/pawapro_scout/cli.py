@@ -133,7 +133,7 @@ def main() -> None:
         try:
             pipeline.run(player)
         except Exception as e:
-            console.print(f"[red]✗ {player.name_jp} 失敗: {e}[/red]")
+            console.print(f"[red][NG] {player.name_jp} 失敗: {e}[/red]")
             errors.append(player.name_jp)
             logger.exception(f"{player.name_jp} 処理中にエラー")
 
@@ -141,4 +141,4 @@ def main() -> None:
         console.print(f"\n[red]失敗した選手: {', '.join(errors)}[/red]")
         sys.exit(1)
     else:
-        console.print("\n[bold green]全選手の処理が完了しました ✓[/bold green]")
+        console.print("\n[bold green]全選手の処理が完了しました[/bold green]")
