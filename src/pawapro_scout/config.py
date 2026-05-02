@@ -28,7 +28,7 @@ SAVANT_LEADERBOARD_SLUGS = {
     "catcher_throwing": "catcher-throwing",
     "pitcher_fielding": "pitcher-fielding",
     "pitch_arsenal": "pitch-arsenal-stats",
-    "outfielder_throws": "outfielder-throws",
+    "outfielder_throws": "arm-strength",          # 旧: outfielder-throws (404)
     "fielding_run_value": "fielding-run-value",
 }
 

@@ -109,7 +109,7 @@ class BatterAggregator:
         row_oaa  = _row(outs_above_average,"player_id", self.mlbam_id)
         row_fg   = _row(batting_stats_fg,  "IDfg",      self.fg_id)   if self.fg_id else None
         row_bref = _row(batting_stats_bref,"mlbID",     self.mlbam_id)
-        row_frv  = _row(fielding_run_value,"player_id", self.mlbam_id)
+        row_frv  = _row(fielding_run_value,"id",         self.mlbam_id)  # 新FRV CSVは "id" 列
         row_of   = _row(outfielder_throws, "player_id", self.mlbam_id) if outfielder_throws is not None else None
         row_pop  = _row(catcher_poptime,   "player_id", self.mlbam_id) if catcher_poptime  is not None else None
         row_frm  = _row(catcher_framing,   "player_id", self.mlbam_id) if catcher_framing  is not None else None
@@ -149,17 +149,17 @@ class BatterAggregator:
             sprint_speed = _get(row_spd, "sprint_speed"),
             bolts        = int(_get(row_spd, "bolts", default=0)),
 
-            # 肩力
-            arm_strength_mph = _get(row_of, "max_throw_speed", "arm_strength_mph", default=None),
+            # 肩力 (arm-strength CSV: max_arm_strength, arm_overall / 旧: max_throw_speed)
+            arm_strength_mph = _get(row_of, "max_arm_strength", "arm_overall", "max_throw_speed", default=None),
             pop_time         = _get(row_pop, "pop_time_2b_sba_all", "pop_time", default=None),
 
             # 守備力
             oaa            = int(_get(row_oaa, "outs_above_average", default=0)),
             oaa_percentile = int(_get(row_pct, "outs_above_average", default=50)),
 
-            # 捕球
-            fielding_run_value = _get(row_frv, "frv", "fielding_run_value"),
-            error_count        = int(_get(row_frv, "errors", default=0)),
+            # 捕球 (新FRV CSV: total_runs / 旧: frv)
+            fielding_run_value = _get(row_frv, "total_runs", "frv", "fielding_run_value"),
+            error_count        = int(_get(row_frv, "errors", default=0)),  # 新CSVに errors 列なし → 0
 
             # FanGraphs 打撃
             k_percent   = _pct(row_fg, "K%"),

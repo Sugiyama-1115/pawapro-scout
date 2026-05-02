@@ -33,18 +33,28 @@ class SavantLeaderboardFetcher(BaseFetcher):
     # 内部共通メソッド
     # ──────────────────────────────────────────────
 
-    def _fetch_leaderboard(self, slug_key: str, extra_params: dict | None = None) -> pd.DataFrame:
+    def _fetch_leaderboard(
+        self,
+        slug_key: str,
+        extra_params: dict | None = None,
+        override_params: dict | None = None,
+    ) -> pd.DataFrame:
         """
         指定スラッグのリーダーボードを取得してキャッシュする。
 
         Args:
-            slug_key: SAVANT_LEADERBOARD_SLUGS のキー名
-            extra_params: URL に追加するクエリパラメータ
+            slug_key:        SAVANT_LEADERBOARD_SLUGS のキー名
+            extra_params:    デフォルト params に追加するクエリパラメータ
+            override_params: デフォルト params (year/csv) を完全に置き換えるパラメータ
+                             (フィールド名が変わったエンドポイント向け)
         """
         slug = SAVANT_LEADERBOARD_SLUGS[slug_key]
         cache_key = f"league/savant__{slug_key}"
         url = f"{SAVANT_LEADERBOARD_BASE}/{slug}"
-        params = {"year": self.season, "csv": "true", **(extra_params or {})}
+        if override_params is not None:
+            params = {"csv": "true", **override_params}
+        else:
+            params = {"year": self.season, "csv": "true", **(extra_params or {})}
 
         def fetch() -> pd.DataFrame:
             logger.info(f"Savant leaderboard 取得: {slug} (season={self.season})")
@@ -108,10 +118,21 @@ class SavantLeaderboardFetcher(BaseFetcher):
     def get_fielding_run_value(self) -> pd.DataFrame:
         """
         Fielding Run Value リーダーボード (全ポジション)。
-        主要列: player_id, position, frv, throwing_frv, errors
-        査定用途: 捕球, エラー赤特, 送球ランク制
+        主要列: id (player_id), total_runs, range_runs, arm_runs, throwing_runs, framing_runs
+        査定用途: 捕球, 送球ランク制
+
+        NOTE: 新URLは year= でなく seasonStart/seasonEnd を使う。
+        列名も旧 frv/errors → 新 total_runs/range_runs 等に変更済み。
         """
-        return self._fetch_leaderboard("fielding_run_value")
+        return self._fetch_leaderboard(
+            "fielding_run_value",
+            override_params={
+                "type": "fielder",
+                "seasonStart": self.season,
+                "seasonEnd": self.season,
+                "position": "all",
+            },
+        )
 
     # ──────────────────────────────────────────────
     # 全リーダーボードをまとめて取得
