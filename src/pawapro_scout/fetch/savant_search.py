@@ -174,3 +174,79 @@ class SavantSearchFetcher(BaseFetcher):
             key, mlbam_id, is_pitcher=False,
             extra_params={"hfC": counts},
         )
+
+    # ──────────────────────────────────────────────
+    # 野手 スプリット (FanGraphs Splits 代替)
+    # ──────────────────────────────────────────────
+
+    def get_batter_vs_lhp(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        野手の対左投手成績。
+        FanGraphs Splits (vs_lhp) の代替。
+        主要列: estimated_woba_using_speedangle (xwOBA), woba_value
+        """
+        key = self.cache.player_key(mlbam_id, "savant__batter_vs_lhp")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=False,
+            extra_params={"pitcher_throws": "L"},
+        )
+
+    def get_batter_vs_rhp(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        野手の対右投手成績。
+        FanGraphs Splits (vs_rhp) の代替。
+        """
+        key = self.cache.player_key(mlbam_id, "savant__batter_vs_rhp")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=False,
+            extra_params={"pitcher_throws": "R"},
+        )
+
+    def get_batter_risp(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        野手の得点圏 (RISP) 成績。
+        FanGraphs Splits (risp) の代替。
+        hfPR=risp| = 2塁または3塁にランナーがいる場面。
+        """
+        key = self.cache.player_key(mlbam_id, "savant__batter_risp")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=False,
+            extra_params={"hfPR": "risp|"},
+        )
+
+    # ──────────────────────────────────────────────
+    # 投手 スプリット (FanGraphs Splits 代替)
+    # ──────────────────────────────────────────────
+
+    def get_pitcher_vs_lhb(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        投手の対左打者成績。
+        FanGraphs Splits (vs_lhp キー: 投手視点では左打者) の代替。
+        """
+        key = self.cache.player_key(mlbam_id, "savant__pitcher_vs_lhb")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=True,
+            extra_params={"batter_stands": "L"},
+        )
+
+    def get_pitcher_vs_rhb(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        投手の対右打者成績。
+        FanGraphs Splits (vs_rhp キー) の代替。
+        """
+        key = self.cache.player_key(mlbam_id, "savant__pitcher_vs_rhb")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=True,
+            extra_params={"batter_stands": "R"},
+        )
+
+    def get_pitcher_risp(self, mlbam_id: int) -> pd.DataFrame:
+        """
+        投手の得点圏 (RISP) 成績。
+        FanGraphs Splits (risp) の代替。
+        """
+        key = self.cache.player_key(mlbam_id, "savant__pitcher_risp")
+        return self._fetch_aggregate(
+            key, mlbam_id, is_pitcher=True,
+            extra_params={"hfPR": "risp|"},
+        )

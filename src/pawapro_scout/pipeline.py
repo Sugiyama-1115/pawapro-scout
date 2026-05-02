@@ -34,6 +34,7 @@ from pawapro_scout.assess.pitcher.blue_special import assess_blue_special as ass
 from pawapro_scout.assess.pitcher.red_special import assess_red_special as assess_pitcher_red
 from pawapro_scout.cache.store import CacheStore
 from pawapro_scout.config import CACHE_DIR
+from pawapro_scout.fetch.fangraphs_leaderboard import FangraphsLeaderboardFetcher
 from pawapro_scout.fetch.fangraphs_splits import FangraphsSplitsFetcher
 from pawapro_scout.fetch.pybaseball_fetcher import PybaseballFetcher
 from pawapro_scout.fetch.savant_leaderboard import SavantLeaderboardFetcher
@@ -72,6 +73,7 @@ class Pipeline:
         self.savant_lb = SavantLeaderboardFetcher(season, cache)
         self.savant_search = SavantSearchFetcher(season, cache)
         self.fg = FangraphsSplitsFetcher(season, cache)
+        self.fg_lb = FangraphsLeaderboardFetcher(season, cache)  # 新 REST API
         self._league: dict | None = None  # lazy-loaded
 
     # ──────────────────────────────────────────────
@@ -144,6 +146,11 @@ class Pipeline:
                 logger.warning(f"{name} 取得失敗（空DataFrameで継続）: {e}")
                 return pd.DataFrame()
 
+        def _safe_fallback(name1: str, fn1, name2: str, fn2) -> pd.DataFrame:
+            """fn1 を試し、空DataFrameなら fn2 にフォールバックする。"""
+            df = _safe(name1, fn1)
+            return df if not df.empty else _safe(name2, fn2)
+
         lb = _safe("savant_leaderboards", self.savant_lb.fetch_all)
         if not isinstance(lb, dict):
             lb = {}
@@ -157,8 +164,15 @@ class Pipeline:
             "outs_above_average":  _safe("outs_above_average",       self.pyb.get_outs_above_average),
             "catcher_poptime":     _safe("catcher_poptime",          self.pyb.get_catcher_poptime),
             "pitcher_active_spin": _safe("pitcher_active_spin",      self.pyb.get_pitcher_active_spin),
-            "batting_stats_fg":    _safe("batting_stats_fg",         self.pyb.get_batting_stats_fg),
-            "pitching_stats_fg":   _safe("pitching_stats_fg",        self.pyb.get_pitching_stats_fg),
+            # FanGraphs: 新 REST API を優先、空なら pybaseball にフォールバック
+            "batting_stats_fg":  _safe_fallback(
+                "batting_stats_fg(new)", self.fg_lb.get_batting_stats,
+                "batting_stats_fg(pyb)", self.pyb.get_batting_stats_fg,
+            ),
+            "pitching_stats_fg": _safe_fallback(
+                "pitching_stats_fg(new)", self.fg_lb.get_pitching_stats,
+                "pitching_stats_fg(pyb)", self.pyb.get_pitching_stats_fg,
+            ),
             "batting_stats_bref":  _safe("batting_stats_bref",       self.pyb.get_batting_stats_bref),
             "pitching_stats_bref": _safe("pitching_stats_bref",      self.pyb.get_pitching_stats_bref),
             # Savant leaderboards (7種)
@@ -179,10 +193,32 @@ class Pipeline:
                 )
             except Exception as e:
                 logger.warning(f"FanGraphs batter splits 取得失敗: {e}")
+
+        # FG splits が全て空なら Statcast Search でフォールバック (⑥)
+        if not any(not df.empty for df in splits.values()):
+            logger.info("Statcast splits にフォールバック (batter)")
+            splits = self._fetch_statcast_batter_splits(mlbam_id)
+
         return {
             "statcast_batter": self.pyb.get_statcast_batter(mlbam_id),
             "splits": splits,
         }
+
+    def _fetch_statcast_batter_splits(self, mlbam_id: int) -> dict[str, pd.DataFrame]:
+        """Statcast Search で野手スプリットを取得する (FG Splits 代替)。"""
+        result: dict[str, pd.DataFrame] = {}
+        targets = {
+            "vs_lhp": self.savant_search.get_batter_vs_lhp,
+            "vs_rhp": self.savant_search.get_batter_vs_rhp,
+            "risp":   self.savant_search.get_batter_risp,
+        }
+        for key, method in targets.items():
+            try:
+                result[key] = method(mlbam_id)
+            except Exception as e:
+                logger.warning(f"Statcast batter split {key} 取得失敗: {e}")
+                result[key] = pd.DataFrame()
+        return result
 
     def _fetch_pitcher_data(self, mlbam_id: int, fg_id: int | None) -> dict:
         splits: dict = {}
@@ -194,6 +230,31 @@ class Pipeline:
             except Exception as e:
                 logger.warning(f"FanGraphs pitcher splits 取得失敗: {e}")
 
+        # FG splits が全て空なら Statcast Search でフォールバック (⑥)
+        if not any(not df.empty for df in splits.values()):
+            logger.info("Statcast splits にフォールバック (pitcher)")
+            splits = self._fetch_statcast_pitcher_splits(mlbam_id)
+
+        return self._fetch_pitcher_data_impl(mlbam_id, splits)
+
+    def _fetch_statcast_pitcher_splits(self, mlbam_id: int) -> dict[str, pd.DataFrame]:
+        """Statcast Search で投手スプリットを取得する (FG Splits 代替)。"""
+        result: dict[str, pd.DataFrame] = {}
+        targets = {
+            "vs_lhp": self.savant_search.get_pitcher_vs_lhb,  # 投手視点: vs 左打者
+            "vs_rhp": self.savant_search.get_pitcher_vs_rhb,  # 投手視点: vs 右打者
+            "risp":   self.savant_search.get_pitcher_risp,
+        }
+        for key, method in targets.items():
+            try:
+                result[key] = method(mlbam_id)
+            except Exception as e:
+                logger.warning(f"Statcast pitcher split {key} 取得失敗: {e}")
+                result[key] = pd.DataFrame()
+        return result
+
+    def _fetch_pitcher_inning_zone(self, mlbam_id: int) -> tuple:
+        """投手のイニング別・ゾーン別データを取得する。"""
         savant_inning1 = savant_inning7plus = savant_zone = None
         try:
             savant_inning1 = self.savant_search.get_pitcher_inning(mlbam_id, "1|")
@@ -209,7 +270,12 @@ class Pipeline:
             savant_zone = self.savant_search.get_pitcher_zone(mlbam_id)
         except Exception as e:
             logger.warning(f"Savant zone 取得失敗: {e}")
+        return savant_inning1, savant_inning7plus, savant_zone
 
+    def _fetch_pitcher_data_impl(self, mlbam_id: int, splits: dict) -> dict:
+        """投手データ取得の本体 (イニング/ゾーンも含む)。"""
+        savant_inning1, savant_inning7plus, savant_zone = \
+            self._fetch_pitcher_inning_zone(mlbam_id)
         return {
             "statcast_pitcher": self.pyb.get_statcast_pitcher(mlbam_id),
             "splits": splits,

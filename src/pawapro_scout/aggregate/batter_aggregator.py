@@ -124,7 +124,13 @@ class BatterAggregator:
         rhp_row   = sp.get("vs_rhp",    pd.DataFrame())
 
         def split_woba(df: pd.DataFrame) -> float:
-            for col in ("wOBA", "xwOBA", "OBP"):
+            # FanGraphs 列名 → Statcast Search 列名 の順で探索
+            for col in (
+                "wOBA", "xwOBA",                         # FanGraphs
+                "estimated_woba_using_speedangle",        # Statcast xwOBA
+                "woba_value",                             # Statcast wOBA
+                "OBP",                                    # fallback
+            ):
                 if col in df.columns and not df.empty and pd.notna(df.iloc[0].get(col)):
                     return float(df.iloc[0][col])
             return 0.0

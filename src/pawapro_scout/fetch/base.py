@@ -117,6 +117,22 @@ class BaseFetcher:
         resp.raise_for_status()
         return resp.json()
 
+    @retry(
+        retry=retry_if_exception_type((requests.RequestException, IOError)),
+        stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    def _get_json(self, url: str, params: dict | None = None) -> dict | list:
+        """
+        URL から JSON を GET してレスポンスを返す。
+        tenacity でリトライ付き。
+        """
+        resp = self.session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+
     def _sleep_for_bref(self) -> None:
         """Baseball Reference へのアクセス前に待機する。"""
         time.sleep(BREF_SLEEP_SEC)
