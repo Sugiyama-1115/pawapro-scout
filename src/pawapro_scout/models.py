@@ -88,7 +88,10 @@ class BatterStats:
     gdp: int = 0
     sh: int = 0
     games: int = 0
-    xbt_percent: float = 0.0           # Extra Bases Taken %
+    xbt_percent: float = 0.0           # Extra Bases Taken % (旧走塁指標)
+    baserunning_run_value: float | None = None   # Baserunning Run Value 走塁ランク用
+    arm_run_value: float | None = None           # Fielding Run Value (Arm) 送球ランク用
+    error_run_value: float | None = None         # Fielding Run Value (Error) エラー赤特用
 
     # xBA パーセンタイル
     xba_percentile: int = 0
@@ -120,6 +123,7 @@ class PitcherStats:
     # コントロール
     k_percent: float = 0.0
     bb_percent: float = 0.0
+    zone_percent: float = 0.0          # ストライクゾーン投球率 (コントロール複合指標用)
     k_percentile: int = 50
     bb_percentile: int = 50
 
@@ -131,6 +135,7 @@ class PitcherStats:
 
     # 球威
     exit_vel_percentile: int = 50
+    avg_ev_against: float = 0.0        # 被打球速度平均 mph (怪物球威用)
     hard_hit_percent: float = 0.0
 
     # ムーブメント

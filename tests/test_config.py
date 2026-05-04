@@ -79,12 +79,12 @@ class TestPercentileToGrade:
 
 
 class TestControlGrade:
-    """コントロール (BB%) 閾値の方向性テスト"""
+    """コントロール複合指標の閾値テスト"""
 
-    def test_control_breakpoints_are_ascending(self):
-        # BB% の閾値は昇順（低いBB%ほど良い → 逆変換が必要）
+    def test_control_breakpoints_are_descending(self):
+        # Zone% + (15 - BB%) の複合スコアは高いほど良い → 閾値は降順
         for i in range(len(CONTROL_BREAKPOINTS) - 1):
-            assert CONTROL_BREAKPOINTS[i] < CONTROL_BREAKPOINTS[i + 1]
+            assert CONTROL_BREAKPOINTS[i] > CONTROL_BREAKPOINTS[i + 1]
 
     def test_trajectory_breakpoints_are_descending(self):
         # 弾道の閾値は降順

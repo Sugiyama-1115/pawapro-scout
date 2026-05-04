@@ -2,20 +2,22 @@
 assess/pitcher/blue_special.py
 投手の青特殊能力を査定する。
 
-青特            判定指標
-奪三振          k_percent >= 28%
-リリース◯       release_stddev <= 0.5in
-緩急◯          全球種の速度差 >= 15mph (ただし金特条件未満)
-球持ち◯        extension_percentile >= 90
-緊急登板◯      ir_stranded_pct >= 80%
-球速安定        4seam の (最速 - 平均) <= 3mph  → release_x_stddev 代替
-低め◯          low_zone_pct >= 40%
-逃げ球          heart_zone_pct <= 20%
-ナチュラルシュート 4seam HB >= 10in (腕側方向)
-対ランナー◯    risp_xwoba - season_xwoba <= -0.030
-立ち上がり◯    inning1_xwoba - season_xwoba <= -0.040
-尻上がり        inning7plus_xwoba - season_xwoba <= -0.020
-要所◯          high_lev_xwoba - season_xwoba <= -0.050
+青特                判定指標
+キレ◯              変化球/オフスピードの Whiff% >= 35%
+奪三振              k_percent >= 30%
+球速安定            4seam の (最速 - 平均) <= 3mph
+リリース◯           release_stddev <= 0.5in
+緩急◯              全球種の速度差 >= 15mph (変幻自在 = 20mph 以上は除く)
+球持ち◯            extension_percentile >= 90
+緊急登板◯           ir_stranded_pct >= 80%
+低め◯              low_zone_pct >= 40%
+逃げ球              heart_zone_pct <= 20%
+ナチュラルシュート   4seam HB >= 10in (腕側方向)
+ジャイロボール       4seam Active Spin <= 70%
+対ランナー◯        risp_xwoba - season_xwoba <= -0.030
+立ち上がり◯        inning1_xwoba - season_xwoba <= -0.040
+尻上がり            inning7plus_xwoba - season_xwoba <= -0.020
+要所◯              high_lev_xwoba - season_xwoba <= -0.050
 """
 
 from __future__ import annotations
@@ -24,10 +26,12 @@ from pawapro_scout.config import (
     BLUE_4SEAM_SPEED_DIFF_MAX,
     BLUE_EXT_PERCENTILE,
     BLUE_FIRST_INN_XWOBA_IMPROVE,
+    BLUE_GYROBALL_SPIN_MAX,
     BLUE_HEART_ZONE_PCT_MAX,
     BLUE_HIGH_LEV_XWOBA_IMPROVE,
     BLUE_IR_STRAND_MIN,
     BLUE_K_PCT_MIN,
+    BLUE_KIRE_BREAKING_WHIFF_MIN,
     BLUE_LATE_XWOBA_IMPROVE,
     BLUE_LOW_ZONE_PCT_MIN,
     BLUE_NATURAL_HB_MIN,
@@ -38,10 +42,16 @@ from pawapro_scout.config import (
 )
 from pawapro_scout.models import PitchAggregated, PitcherStats
 
+# Statcast 変化球 / オフスピード family
+_BREAKING_OFFSPEED_FAMILIES = {"slider_family", "splitter_family", "changeup", "curveball"}
+
 
 def assess_blue_special(stats: PitcherStats) -> list[str]:
     """PitcherStats から獲得する青特リストを返す。"""
     result: list[str] = []
+
+    if _is_kire_maru(stats.pitches):
+        result.append("キレ◯")
 
     if _is_datsusansen(stats):
         result.append("奪三振")
@@ -67,6 +77,9 @@ def assess_blue_special(stats: PitcherStats) -> list[str]:
     if _is_natural_shoot(stats.pitches):
         result.append("ナチュラルシュート")
 
+    if _is_gyroball(stats):
+        result.append("ジャイロボール")
+
     if _is_runner_maru(stats):
         result.append("対ランナー◯")
 
@@ -86,8 +99,21 @@ def assess_blue_special(stats: PitcherStats) -> list[str]:
 # 各青特の判定
 # ──────────────────────────────────────────────
 
+def _is_kire_maru(pitches: list[PitchAggregated]) -> bool:
+    """キレ◯: 変化球・オフスピードの Whiff% (加重平均) >= 35%。"""
+    from pawapro_scout.config import PITCH_FAMILY_MAP
+    breaking = [p for p in pitches if PITCH_FAMILY_MAP.get(p.pitch_type, "") in _BREAKING_OFFSPEED_FAMILIES]
+    if not breaking:
+        return False
+    total_usage = sum(p.usage_pct for p in breaking)
+    if total_usage == 0:
+        return False
+    weighted_whiff = sum(p.whiff_pct * p.usage_pct for p in breaking) / total_usage
+    return weighted_whiff >= BLUE_KIRE_BREAKING_WHIFF_MIN
+
+
 def _is_datsusansen(stats: PitcherStats) -> bool:
-    """奪三振: K% >= 28%。"""
+    """奪三振: K% >= 30%。"""
     return stats.k_percent >= BLUE_K_PCT_MIN
 
 
@@ -98,7 +124,7 @@ def _is_release_maru(stats: PitcherStats) -> bool:
 
 
 def _is_kankyuu_maru(pitches: list[PitchAggregated]) -> bool:
-    """緩急◯: 球速差が 15mph 以上 (ただし 変幻自在 = 20mph 以上は除く)。"""
+    """緩急◯: 球速差が 15mph 以上 (変幻自在 = 20mph 以上は除く)。"""
     if len(pitches) < 2:
         return False
     vels = [p.velocity_avg for p in pitches if p.velocity_avg > 0]
@@ -141,6 +167,13 @@ def _is_natural_shoot(pitches: list[PitchAggregated]) -> bool:
     if ff is None:
         return False
     return abs(ff.horizontal_break) >= BLUE_NATURAL_HB_MIN
+
+
+def _is_gyroball(stats: PitcherStats) -> bool:
+    """ジャイロボール: 4seam の Active Spin (回転効率) <= 70%。"""
+    if stats.active_spin_4seam is None:
+        return False
+    return stats.active_spin_4seam <= BLUE_GYROBALL_SPIN_MAX
 
 
 def _is_runner_maru(stats: PitcherStats) -> bool:

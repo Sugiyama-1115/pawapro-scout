@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from pawapro_scout.config import (
     CONTROL_BREAKPOINTS,
-    GRADES,
     STAMINA_SP_BREAKPOINTS,
     score_to_grade,
 )
@@ -24,7 +23,7 @@ def assess_basic(stats: PitcherStats) -> PitcherBasic:
     """PitcherStats から PitcherBasic を生成する。"""
     return PitcherBasic(
         球速=_assess_velocity(stats.max_velocity_mph),
-        コントロール=_assess_control(stats.bb_percent),
+        コントロール=_assess_control(stats.zone_percent, stats.bb_percent),
         スタミナ=_assess_stamina(stats),
     )
 
@@ -42,15 +41,18 @@ def _assess_velocity(mph: float) -> int:
 # コントロール
 # ──────────────────────────────────────────────
 
-def _assess_control(bb_pct: float) -> str:
+def _assess_control(zone_pct: float, bb_pct: float) -> str:
     """
-    BB% が小さいほど良い → CONTROL_BREAKPOINTS (昇順) と比較して返す。
-    breakpoints: [3.5, 5.0, 6.6, 8.6, 10.6, 12.6, 14.6]
+    指標値 = Zone% + (15 - BB%) で算出した複合指標でランクを決定する。
+    Zone%とBB%が未取得 (0.0) の場合は BB% のみで暫定評価する。
+    breakpoints (降順): [65, 60, 55, 50, 45, 40, 35]
     """
-    for threshold, grade in zip(CONTROL_BREAKPOINTS, GRADES):
-        if bb_pct <= threshold:
-            return grade
-    return "G"
+    if zone_pct > 0.0:
+        score = zone_pct + (15.0 - bb_pct)
+    else:
+        # Zone% 未取得時のフォールバック: BB% 逆変換
+        score = (15.0 - bb_pct) + 50.0  # Zone% を平均 50% と仮定
+    return score_to_grade(score, CONTROL_BREAKPOINTS)
 
 
 # ──────────────────────────────────────────────

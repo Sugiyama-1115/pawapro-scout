@@ -2,18 +2,25 @@
 assess/pitcher/gold_special.py
 投手の金特殊能力を査定する。
 
-金特    判定指標
-ドクターK       k_percentile >= 99
-怪物球威        exit_vel_percentile >= 99 (被打球速度が最小クラス)
+金特            判定指標
+ドクターK       K% >= 35.0% (絶対値)
+怪物球威        被打球平均速度 <= 85.0 mph (絶対値)
 変幻自在        全球種の最速-最遅 >= 20mph
-怪童            いずれかの球種の abs(IVB) >= 20in
+怪童            4seam の IVB >= 20in
+精密機械        Low Zone% >= 45% AND BB% <= 4.0%
+ハイスピンジャイロ 4seam Active Spin <= 70% AND 球速 >= 97mph
 """
 
 from __future__ import annotations
 
 from pawapro_scout.config import (
+    GOLD_AVG_EV_MAX,
+    GOLD_HIGH_SPIN_GYRO_SPIN_MAX,
+    GOLD_HIGH_SPIN_GYRO_VEL_MIN,
     GOLD_IVB_KAIDO_MIN,
-    GOLD_PERCENTILE,
+    GOLD_K_PCT_MIN,
+    GOLD_PRECISION_BB_MAX,
+    GOLD_PRECISION_LOWZONE_MIN,
     GOLD_SPEED_DIFF_MAX,
 )
 from pawapro_scout.models import PitchAggregated, PitcherStats
@@ -35,6 +42,12 @@ def assess_gold_special(stats: PitcherStats) -> list[str]:
     if _is_kaido(stats.pitches):
         result.append("怪童")
 
+    if _is_seimitsu_kikai(stats):
+        result.append("精密機械")
+
+    if _is_high_spin_gyro(stats):
+        result.append("ハイスピンジャイロ")
+
     return result
 
 
@@ -43,12 +56,16 @@ def assess_gold_special(stats: PitcherStats) -> list[str]:
 # ──────────────────────────────────────────────
 
 def _is_doctor_k(stats: PitcherStats) -> bool:
-    """ドクターK: 三振パーセンタイルが 99 以上。"""
-    return stats.k_percentile >= GOLD_PERCENTILE
+    """ドクターK: K% >= 35.0% (絶対閾値)。"""
+    return stats.k_percent >= GOLD_K_PCT_MIN
 
 
 def _is_monster_stuff(stats: PitcherStats) -> bool:
-    """怪物球威: 被打球速度パーセンタイルが 99 以上（打者が強い打球を打てない）。"""
+    """怪物球威: 被打球平均速度 <= 85.0 mph。データ未取得時はパーセンタイルで代替。"""
+    if stats.avg_ev_against > 0.0:
+        return stats.avg_ev_against <= GOLD_AVG_EV_MAX
+    # avg_ev_against 未取得時のフォールバック: パーセンタイル 99 以上
+    from pawapro_scout.config import GOLD_PERCENTILE
     return stats.exit_vel_percentile >= GOLD_PERCENTILE
 
 
@@ -67,7 +84,28 @@ def _is_hengenjizai(pitches: list[PitchAggregated]) -> bool:
 
 def _is_kaido(pitches: list[PitchAggregated]) -> bool:
     """
-    怪童: いずれかの球種の IVB が 20in 以上。
-    IVB は induced vertical break (正 = 浮き上がり / ライズ方向)。
+    怪童: 4seam の IVB が 20in 以上。
+    IVB は induced vertical break (絶対値で判定)。
     """
-    return any(abs(p.induced_vertical_break) >= GOLD_IVB_KAIDO_MIN for p in pitches)
+    ff = next((p for p in pitches if p.pitch_type in ("FF", "FA")), None)
+    if ff is None:
+        return False
+    return abs(ff.induced_vertical_break) >= GOLD_IVB_KAIDO_MIN
+
+
+def _is_seimitsu_kikai(stats: PitcherStats) -> bool:
+    """精密機械: Low Zone% >= 45% AND BB% <= 4.0%。"""
+    return (
+        stats.low_zone_pct >= GOLD_PRECISION_LOWZONE_MIN
+        and stats.bb_percent <= GOLD_PRECISION_BB_MAX
+    )
+
+
+def _is_high_spin_gyro(stats: PitcherStats) -> bool:
+    """ハイスピンジャイロ: 4seam Active Spin <= 70% AND 最高球速 >= 97mph。"""
+    if stats.active_spin_4seam is None:
+        return False
+    return (
+        stats.active_spin_4seam <= GOLD_HIGH_SPIN_GYRO_SPIN_MAX
+        and stats.max_velocity_mph >= GOLD_HIGH_SPIN_GYRO_VEL_MIN
+    )
