@@ -2,42 +2,59 @@
 assess/pitcher/rank_abilities.py
 投手のランク制能力 (6種) を査定する。
 
-能力名       指標                    ランク範囲
-打たれ強さ   exit_vel_percentile     金/S/A/B/C/D/E/F/G
-回復         ir_stranded_pct         S/A/B/C/D/E/F/G
-クイック     被盗塁阻止率            S/A/B/C/D/E/F/G
-対ピンチ     risp_xwoba vs 通常      金/S/A/B/C/D/E/F/G
-対左打者     vs_lhp vs 通常 xwOBA   金/S/A/B/C/D/E/F/G
-ノビ         k_percentile            金/S/A/B/C/D/E/F/G
+能力名       指標                         ランク範囲
+打たれ強さ   LOB% (残塁率)               金/S/A/B/C/D/E/F/G
+回復         IP (先発) / G (救援)         金/S/A/B/C/D/E/F/G
+クイック     被盗塁成功率 (低いほど良い)  金/S/A/B/C/D/E/F/G
+対ピンチ     RISP xwOBA vs 通常 xwOBA    金/A/B/C/D/E/F/G
+対左打者     vs LHP xwOBA vs vs RHP      金/S/A/B/C/D/E/F/G
+ノビ         4seam IVB (インチ)           金/S/A/B/C/D/E/F/G
 """
 
 from __future__ import annotations
 
-from pawapro_scout.config import GOLD_PERCENTILE, percentile_to_grade
-from pawapro_scout.models import PitcherStats
+from pawapro_scout.config import (
+    LOB_NOBITARESOSA_BREAKPOINTS,
+    LOB_NOBITARESOSA_GOLD,
+    NOBI_IVB_BREAKPOINTS,
+    NOBI_IVB_GOLD,
+    QUICK_CS_RATE_BREAKPOINTS,
+    QUICK_GOLD_CS_RATE,
+    RECOVERY_BREAKPOINTS_G,
+    RECOVERY_BREAKPOINTS_IP,
+    RECOVERY_GOLD_G,
+    RECOVERY_GOLD_IP,
+    VS_LHP_PITCHER_XWOBA_GOLD,
+    score_to_grade,
+)
+from pawapro_scout.models import PitchAggregated, PitcherStats
 
-# 金ランク付与の xwOBA 改善幅
-_GOLD_XWOBA_DIFF = -0.080
-# 金ランク付与の CS率
-_GOLD_CS_RATE = 0.45
+# 先発/救援の境界
+_SP_THRESHOLD_RATIO = 0.5
 
-# 対ピンチ / 対左打者: xwOBA 差 → グレード (差分が負ほど良い)
+# 対ピンチ / xwOBA 差 → グレード (差分が負ほど良い)
+# 金(強心臓): diff <= -0.060 / A: <= -0.040 / D: <= 0.010 / F: <= 0.040
 _CLUTCH_BREAKPOINTS = [
     (-0.060, "金"),
-    (-0.040, "S"),
-    (-0.020, "A"),
-    ( 0.010, "B"),
-    ( 0.020, "C"),
-    ( 0.040, "D"),
-    ( 0.060, "E"),
-    ( 0.080, "F"),
+    (-0.040, "A"),
+    (-0.020, "B"),
+    (-0.005, "C"),
+    ( 0.010, "D"),
+    ( 0.025, "E"),
+    ( 0.040, "F"),
 ]
 
-# 回復 (IR-S%): 高いほど良い
-_IR_STRAND_BREAKPOINTS = [90.0, 85.0, 80.0, 70.0, 60.0, 50.0, 40.0]
-
-# クイック (CS率): 高いほど良い
-_CS_RATE_BREAKPOINTS = [0.45, 0.35, 0.28, 0.22, 0.16, 0.10, 0.05]
+# 対左打者 差分 → グレード (vs_lhp - vs_rhp, 負が良い)
+# 金は絶対値 (vs_lhp_xwoba <= 0.230) で別判定
+_VS_LHP_PITCHER_BREAKPOINTS = [
+    (-0.060, "S"),
+    (-0.040, "A"),
+    (-0.020, "B"),
+    (-0.005, "C"),
+    ( 0.015, "D"),
+    ( 0.030, "E"),
+    ( 0.040, "F"),
+]
 
 
 def assess_rank_abilities(stats: PitcherStats) -> dict[str, str | None]:
@@ -58,84 +75,102 @@ def assess_rank_abilities(stats: PitcherStats) -> dict[str, str | None]:
 
 def _打たれ強さ(stats: PitcherStats) -> str:
     """
-    打球速度パーセンタイル → グレード。
-    Savant では exit_vel_percentile が高い投手 = 被打球が弱い = 良い投手。
+    LOB% (残塁率) → グレード。高いほど良い。
+    金特（不屈の魂）: LOB% >= 85%
     """
-    pct = stats.exit_vel_percentile
-    if pct >= GOLD_PERCENTILE:
+    lob = stats.lob_percent
+    if lob <= 0.0:
+        return "C"
+    if lob >= LOB_NOBITARESOSA_GOLD:
         return "金"
-    return percentile_to_grade(pct)
+    return score_to_grade(lob, LOB_NOBITARESOSA_BREAKPOINTS)
 
 
 def _回復(stats: PitcherStats) -> str:
     """
-    IR-S% (Inherited Runners Stranded%) → グレード。
-    データがない場合は C を返す。
+    先発: 投球回 (IP) / 救援: 登板数 (G) → グレード。
+    金特（ガソリンタンク）: IP >= 210 or G >= 80
     """
-    if stats.ir_stranded_pct is None:
-        return "C"
-    from pawapro_scout.config import score_to_grade
-    return score_to_grade(stats.ir_stranded_pct, _IR_STRAND_BREAKPOINTS)
+    is_starter = stats.games > 0 and (stats.games_started / stats.games) >= _SP_THRESHOLD_RATIO
+
+    if is_starter:
+        ip = stats.ip
+        if ip >= RECOVERY_GOLD_IP:
+            return "金"
+        return score_to_grade(ip, [float(b) for b in RECOVERY_BREAKPOINTS_IP])
+    else:
+        g = stats.games
+        if g >= RECOVERY_GOLD_G:
+            return "金"
+        return score_to_grade(float(g), [float(b) for b in RECOVERY_BREAKPOINTS_G])
 
 
 def _クイック(stats: PitcherStats) -> str:
     """
-    被盗塁阻止率 (CS / (SB + CS)) → グレード。
-    データがない場合は C を返す。
+    被盗塁阻止率 CS / (SB + CS) → グレード。高いほど良い。
+    金特（走者釘付）: CS率 >= 60% (= 被盗塁成功率 <= 40%)
     """
     total = stats.sb_against + stats.cs_against
     if total == 0:
         return "C"
     cs_rate = stats.cs_against / total
-    if cs_rate >= _GOLD_CS_RATE:
+    if cs_rate >= QUICK_GOLD_CS_RATE:
         return "金"
-    from pawapro_scout.config import score_to_grade
-    return score_to_grade(cs_rate, _CS_RATE_BREAKPOINTS)
+    return score_to_grade(cs_rate, QUICK_CS_RATE_BREAKPOINTS)
 
 
 def _対ピンチ(stats: PitcherStats) -> str:
     """
-    RISP xwOBA - 通常 xwOBA → グレード。
-    差が負 (得点圏で抑える) ほど良い。
+    RISP xwOBA - 通常 xwOBA → グレード。差が負 (得点圏で抑える) ほど良い。
+    金特（強心臓）: diff <= -0.060
     """
     if stats.season_xwoba == 0.0:
         return "C"
     diff = stats.risp_xwoba - stats.season_xwoba
-    return _xwoba_diff_to_grade(diff)
+    return _xwoba_diff_to_grade(diff, _CLUTCH_BREAKPOINTS)
 
 
 def _対左打者(stats: PitcherStats) -> str:
     """
-    対左打者 xwOBA - 通常 xwOBA → グレード。
-    差が負 (左打者を抑える) ほど良い。
+    vs LHP xwOBA - vs RHP xwOBA → グレード。差が負 (左打者を抑える) ほど良い。
+    金特（左キラー）: vs LHP xwOBA <= 0.230 (絶対閾値)
     """
-    if stats.season_xwoba == 0.0:
+    if stats.vs_lhp_xwoba <= 0.0 or stats.vs_rhp_xwoba <= 0.0:
         return "C"
-    diff = stats.vs_lhp_xwoba - stats.season_xwoba
-    return _xwoba_diff_to_grade(diff)
+    if stats.vs_lhp_xwoba <= VS_LHP_PITCHER_XWOBA_GOLD:
+        return "金"
+    diff = stats.vs_lhp_xwoba - stats.vs_rhp_xwoba
+    return _xwoba_diff_to_grade(diff, _VS_LHP_PITCHER_BREAKPOINTS)
 
 
 def _ノビ(stats: PitcherStats) -> str:
     """
-    三振パーセンタイル → グレード。
-    ノビ = 直球の被空振り能力の象徴として K パーセンタイルを使用。
+    4シームの Induced Vertical Break (IVB, インチ) → グレード。高いほど良い。
+    金特（怪童）: IVB >= 20インチ
     """
-    pct = stats.k_percentile
-    if pct >= GOLD_PERCENTILE:
+    ivb = _get_4seam_ivb(stats.pitches)
+    if ivb is None:
+        return "C"
+    if ivb >= NOBI_IVB_GOLD:
         return "金"
-    return percentile_to_grade(pct)
+    return score_to_grade(ivb, NOBI_IVB_BREAKPOINTS)
 
 
 # ──────────────────────────────────────────────
 # 内部ユーティリティ
 # ──────────────────────────────────────────────
 
-def _xwoba_diff_to_grade(diff: float) -> str:
-    """
-    xwOBA 差分 (負 = 良い) をグレードに変換する。
-    非常に優秀 (diff <= -0.060) → 金
-    """
-    for threshold, grade in _CLUTCH_BREAKPOINTS:
+def _xwoba_diff_to_grade(diff: float, breakpoints: list[tuple[float, str]]) -> str:
+    """xwOBA 差分 → グレード (breakpoints は (閾値, グレード) のリスト, 差が小さいほど良い)。"""
+    for threshold, grade in breakpoints:
         if diff <= threshold:
             return grade
     return "G"
+
+
+def _get_4seam_ivb(pitches: list[PitchAggregated]) -> float | None:
+    """4シーム (FF/FA) の IVB を返す。存在しない場合は None。"""
+    ff = next((p for p in pitches if p.pitch_type in ("FF", "FA")), None)
+    if ff is None:
+        return None
+    return abs(ff.induced_vertical_break)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_assess_batter.py
 野手査定層 (assess/batter/) のユニットテスト
 """
@@ -39,16 +39,16 @@ def make_stats(**kwargs) -> BatterStats:
         sb=3,
         cs=1,
         games=100,
-        xbt_percent=33.0,
         risp_avg=0.260,
         season_avg=0.260,
         vs_lhp_woba=0.330,
         vs_rhp_woba=0.330,
+        barrel_percent=5.0,
         barrel_percentile=80,
         xba_percentile=80,
         pull_hr_pct=0.50,
         oppo_hr_count=3,
-        multi_hit_game_count=10,
+        multi_hit_game_count=5,   # 固め打ち閾値8未満 → 中立
         bolts=5,
     )
     defaults.update(kwargs)
@@ -288,7 +288,7 @@ class TestRankAbilities:
         s = make_stats()
         result = assess_rank_abilities(s, "OF")
         assert set(result.keys()) == {
-            "ケガしにくさ", "走塁", "盗塁", "対左投手", "対変化球", "送球", "キャッチャー"
+            "ケガしにくさ", "走塁", "盗塁", "チャンス", "対左投手", "送球", "キャッチャー"
         }
 
     def test_catcher_is_none_for_non_catcher(self):
@@ -312,56 +312,86 @@ class TestRankAbilities:
         s = make_stats(games=30)
         assert assess_rank_abilities(s, "OF")["ケガしにくさ"] == "G"
 
-    def test_steal_gold_at_50(self):
-        s = make_stats(sb=50)
+    # ── 盗塁 ──
+    def test_steal_gold(self):
+        # sb=40, cs=4 → total=44, rate=40/44=91% >= 90%, sb >= 40 → 金
+        s = make_stats(sb=40, cs=4)
         assert assess_rank_abilities(s, "OF")["盗塁"] == "金"
 
-    def test_steal_s_rank(self):
-        s = make_stats(sb=36)
-        assert assess_rank_abilities(s, "OF")["盗塁"] == "S"
+    def test_steal_a_rank(self):
+        # sb=20, cs=3 → rate=87% >= 85%, sb >= 20 → A
+        s = make_stats(sb=20, cs=3)
+        assert assess_rank_abilities(s, "OF")["盗塁"] == "A"
 
     def test_steal_g_rank(self):
-        s = make_stats(sb=0)
+        s = make_stats(sb=0, cs=1)
         assert assess_rank_abilities(s, "OF")["盗塁"] == "G"
 
+    # ── チャンス ──
+    def test_chance_gold(self):
+        # diff = +0.080 → 金
+        s = make_stats(risp_avg=0.340, season_avg=0.260)
+        assert assess_rank_abilities(s, "OF")["チャンス"] == "金"
+
+    def test_chance_c_rank_neutral(self):
+        # diff = 0.0 → C
+        s = make_stats(risp_avg=0.260, season_avg=0.260)
+        assert assess_rank_abilities(s, "OF")["チャンス"] == "C"
+
+    def test_chance_g_rank(self):
+        # diff = -0.070 < -0.060 → G
+        s = make_stats(risp_avg=0.190, season_avg=0.260)
+        assert assess_rank_abilities(s, "OF")["チャンス"] == "G"
+
+    def test_chance_zero_risp_returns_c(self):
+        s = make_stats(risp_avg=0.0, season_avg=0.260)
+        assert assess_rank_abilities(s, "OF")["チャンス"] == "C"
+
+    # ── 対左投手 ──
     def test_vs_lhp_gold(self):
-        s = make_stats(vs_lhp_woba=0.420, vs_rhp_woba=0.330)
+        # diff = 0.105 → 金 (BATTER_VS_LHP_GOLD_MIN=0.100, float精度確保)
+        s = make_stats(vs_lhp_woba=0.435, vs_rhp_woba=0.330)
         assert assess_rank_abilities(s, "OF")["対左投手"] == "金"
 
     def test_vs_lhp_s_rank(self):
-        """diff = 0.070 -> S"""
-        s = make_stats(vs_lhp_woba=0.400, vs_rhp_woba=0.330)
+        # diff = 0.077 >= 0.075 → S
+        s = make_stats(vs_lhp_woba=0.407, vs_rhp_woba=0.330)
         assert assess_rank_abilities(s, "OF")["対左投手"] == "S"
 
     def test_vs_lhp_c_rank(self):
-        s = make_stats(vs_lhp_woba=0.330, vs_rhp_woba=0.330)
+        # diff ≈ 0.025 → C (>0.015 かつ <0.030)
+        s = make_stats(vs_lhp_woba=0.355, vs_rhp_woba=0.330)
         assert assess_rank_abilities(s, "OF")["対左投手"] == "C"
 
     def test_vs_lhp_zero_woba_returns_c(self):
         s = make_stats(vs_lhp_woba=0.0, vs_rhp_woba=0.330)
         assert assess_rank_abilities(s, "OF")["対左投手"] == "C"
 
-    def test_vs_breaking_low_k_s_rank(self):
-        s = make_stats(k_percent=7.0)
-        assert assess_rank_abilities(s, "OF")["対変化球"] == "S"
+    # ── 走塁 ──
+    def test_baserunning_s_rank(self):
+        # BASERUNNING_RV_BREAKPOINTS[0]=8.0 → S
+        s = make_stats(baserunning_run_value=8.0)
+        assert assess_rank_abilities(s, "OF")["走塁"] == "S"
 
-    def test_vs_breaking_mid_k_c_rank(self):
-        """VS_BREAKING_BREAKPOINTS[3]=20.0 → k<=20 はC。k=20.0 → C"""
-        s = make_stats(k_percent=20.0)
-        assert assess_rank_abilities(s, "OF")["対変化球"] == "C"
+    def test_baserunning_none_returns_c(self):
+        s = make_stats()  # baserunning_run_value=None by default
+        assert assess_rank_abilities(s, "OF")["走塁"] == "C"
 
-    def test_vs_breaking_mid_k_d_rank(self):
-        """20 < k <= 24 → D。k=22.0 → D"""
-        s = make_stats(k_percent=22.0)
-        assert assess_rank_abilities(s, "OF")["対変化球"] == "D"
+    # ── 送球 ──
+    def test_sending_s_rank(self):
+        # ARM_RV_BREAKPOINTS[0]=4.0 → S
+        s = make_stats(arm_run_value=4.0)
+        assert assess_rank_abilities(s, "OF")["送球"] == "S"
 
-    def test_vs_breaking_high_k_g_rank(self):
-        s = make_stats(k_percent=35.0)
-        assert assess_rank_abilities(s, "OF")["対変化球"] == "G"
+    def test_sending_none_returns_c(self):
+        s = make_stats()  # arm_run_value=None by default
+        assert assess_rank_abilities(s, "OF")["送球"] == "C"
 
+    # ── キャッチャー ──
     def test_catcher_framing_s_rank(self):
+        # framing=8.0, blocking=None → effective=8.0. CATCHER_RANK_BREAKPOINTS[0]=8.0 → S
         s = make_stats()
-        s.framing_runs = 12.0
+        s.framing_runs = 8.0
         assert assess_rank_abilities(s, "C")["キャッチャー"] == "S"
 
     def test_catcher_framing_none_returns_c(self):
@@ -369,38 +399,39 @@ class TestRankAbilities:
         s.framing_runs = None
         assert assess_rank_abilities(s, "C")["キャッチャー"] == "C"
 
-    def test_baserunning_s_rank(self):
-        s = make_stats(xbt_percent=56.0)
-        assert assess_rank_abilities(s, "OF")["走塁"] == "S"
-
-    def test_sending_of_position(self):
-        s = make_stats(arm_strength_mph=100.0)
-        assert assess_rank_abilities(s, "CF")["送球"] == "S"
-
-    def test_sending_none_returns_c(self):
-        s = make_stats()
-        s.arm_strength_mph = None
-        assert assess_rank_abilities(s, "OF")["送球"] == "C"
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 金特
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestGoldSpecial:
-    def test_aachisuto_at_99(self):
-        s = make_stats(barrel_percentile=99)
+    def test_aachisuto_triggers(self):
+        # Barrel% >= 20% AND 平均打球角度 15〜20度
+        s = make_stats(barrel_percent=20.0, avg_launch_angle=17.0)
         assert "アーチスト" in assess_gold_special(s)
 
-    def test_aachisuto_below_99(self):
-        s = make_stats(barrel_percentile=98)
+    def test_aachisuto_barrel_just_below(self):
+        # Barrel% = 19.9 → 付与しない
+        s = make_stats(barrel_percent=19.9, avg_launch_angle=17.0)
         assert "アーチスト" not in assess_gold_special(s)
 
-    def test_hit_machine_at_99(self):
-        s = make_stats(xba_percentile=99)
+    def test_aachisuto_angle_out_of_range(self):
+        # 打球角度 14.9 → 付与しない
+        s = make_stats(barrel_percent=20.0, avg_launch_angle=14.9)
+        assert "アーチスト" not in assess_gold_special(s)
+
+    def test_hit_machine_triggers(self):
+        # xBA >= .310 AND Whiff% <= 15%
+        s = make_stats(xba=0.310, whiff_percent=15.0)
         assert "安打製造機" in assess_gold_special(s)
 
-    def test_hit_machine_below_99(self):
-        s = make_stats(xba_percentile=98)
+    def test_hit_machine_xba_just_below(self):
+        # xBA = 0.309 → 付与しない
+        s = make_stats(xba=0.309, whiff_percent=15.0)
+        assert "安打製造機" not in assess_gold_special(s)
+
+    def test_hit_machine_whiff_too_high(self):
+        # Whiff% = 15.1 → 付与しない
+        s = make_stats(xba=0.310, whiff_percent=15.1)
         assert "安打製造機" not in assess_gold_special(s)
 
     def test_no_gold_on_neutral_stats(self):
@@ -408,7 +439,8 @@ class TestGoldSpecial:
         assert assess_gold_special(s) == []
 
     def test_both_gold_simultaneously(self):
-        s = make_stats(barrel_percentile=99, xba_percentile=99)
+        s = make_stats(barrel_percent=20.0, avg_launch_angle=17.0,
+                       xba=0.310, whiff_percent=15.0)
         result = assess_gold_special(s)
         assert "アーチスト" in result
         assert "安打製造機" in result
@@ -418,36 +450,22 @@ class TestGoldSpecial:
 # 青特
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestBlueSpecial:
-    def test_chance_maru_triggers(self):
-        s = make_stats(risp_avg=0.320, season_avg=0.260)
-        assert "チャンス◯" in assess_blue_special(s)
+    def test_katamari_uchi_triggers(self):
+        # 1試合3安打以上の試合 >= 8試合
+        s = make_stats(multi_hit_game_count=8)
+        assert "固め打ち" in assess_blue_special(s)
 
-    def test_chance_maru_just_below_threshold(self):
-        s = make_stats(risp_avg=0.309, season_avg=0.260)
-        assert "チャンス◯" not in assess_blue_special(s)
-
-    def test_chance_maru_zero_avg_skipped(self):
-        s = make_stats(risp_avg=0.0, season_avg=0.260)
-        assert "チャンス◯" not in assess_blue_special(s)
-
-    def test_vs_lhp_maru_triggers(self):
-        s = make_stats(vs_lhp_woba=0.380, vs_rhp_woba=0.330)
-        assert "対左投手◯" in assess_blue_special(s)
-
-    def test_vs_lhp_maru_just_below_threshold(self):
-        s = make_stats(vs_lhp_woba=0.369, vs_rhp_woba=0.330)
-        assert "対左投手◯" not in assess_blue_special(s)
-
-    def test_vs_lhp_maru_zero_skipped(self):
-        s = make_stats(vs_lhp_woba=0.0, vs_rhp_woba=0.330)
-        assert "対左投手◯" not in assess_blue_special(s)
+    def test_katamari_uchi_just_below(self):
+        s = make_stats(multi_hit_game_count=7)
+        assert "固め打ち" not in assess_blue_special(s)
 
     def test_pull_hitter_triggers(self):
-        s = make_stats(pull_hr_pct=0.65)
+        # 引っ張り方向HR% >= 80%
+        s = make_stats(pull_hr_pct=0.80)
         assert "プルヒッター" in assess_blue_special(s)
 
     def test_pull_hitter_just_below(self):
-        s = make_stats(pull_hr_pct=0.59)
+        s = make_stats(pull_hr_pct=0.79)
         assert "プルヒッター" not in assess_blue_special(s)
 
     def test_koukauku_triggers(self):
@@ -458,21 +476,51 @@ class TestBlueSpecial:
         s = make_stats(oppo_hr_count=4)
         assert "広角打法" not in assess_blue_special(s)
 
-    def test_katamari_uchi_triggers(self):
-        s = make_stats(multi_hit_game_count=15)
-        assert "固め打ち" in assess_blue_special(s)
+    def test_headsli_triggers(self):
+        # Sprint Speed >= 29.0 AND bolts >= 10
+        s = make_stats(sprint_speed=29.0, bolts=10)
+        assert "ヘッドスライディング" in assess_blue_special(s)
 
-    def test_katamari_uchi_just_below(self):
-        s = make_stats(multi_hit_game_count=14)
-        assert "固め打ち" not in assess_blue_special(s)
+    def test_headsli_requires_speed(self):
+        # sprint_speed < 29.0 → 付与しない
+        s = make_stats(sprint_speed=28.9, bolts=10)
+        assert "ヘッドスライディング" not in assess_blue_special(s)
 
-    def test_infield_hit_maru_triggers(self):
-        s = make_stats(bolts=10)
-        assert "内野安打◯" in assess_blue_special(s)
+    def test_headsli_requires_bolts(self):
+        # bolts < 10 → 付与しない
+        s = make_stats(sprint_speed=29.0, bolts=9)
+        assert "ヘッドスライディング" not in assess_blue_special(s)
 
-    def test_infield_hit_maru_just_below(self):
-        s = make_stats(bolts=9)
-        assert "内野安打◯" not in assess_blue_special(s)
+    def test_power_hitter_triggers(self):
+        # Barrel% >= 12% AND 平均打球角度 12〜18度
+        s = make_stats(barrel_percent=12.0, avg_launch_angle=15.0)
+        assert "パワーヒッター" in assess_blue_special(s)
+
+    def test_power_hitter_barrel_just_below(self):
+        s = make_stats(barrel_percent=11.9, avg_launch_angle=15.0)
+        assert "パワーヒッター" not in assess_blue_special(s)
+
+    def test_power_hitter_angle_out_of_range(self):
+        s = make_stats(barrel_percent=12.0, avg_launch_angle=11.9)
+        assert "パワーヒッター" not in assess_blue_special(s)
+
+    def test_line_drive_triggers(self):
+        # 平均打球角度 10〜15度 AND Hard Hit% >= 45%
+        s = make_stats(avg_launch_angle=12.0, hard_hit_percent=45.0)
+        assert "ラインドライブ" in assess_blue_special(s)
+
+    def test_line_drive_hard_hit_just_below(self):
+        s = make_stats(avg_launch_angle=12.0, hard_hit_percent=44.9)
+        assert "ラインドライブ" not in assess_blue_special(s)
+
+    def test_avg_hitter_triggers(self):
+        # xBA >= .280 AND Whiff% <= 20%
+        s = make_stats(xba=0.280, whiff_percent=20.0)
+        assert "アベレージヒッター" in assess_blue_special(s)
+
+    def test_avg_hitter_xba_just_below(self):
+        s = make_stats(xba=0.279, whiff_percent=20.0)
+        assert "アベレージヒッター" not in assess_blue_special(s)
 
     def test_no_blue_on_neutral_stats(self):
         """デフォルト中立値ではいかなる青特も付与されない"""
@@ -515,32 +563,54 @@ class TestRedSpecial:
         assert "三振" not in result
         assert "扇風機" not in result
 
-    def test_chance_batsu_triggers(self):
-        s = make_stats(risp_avg=0.190, season_avg=0.260)
-        assert "チャンス×" in assess_red_special(s)
+    # ── エラー ──
+    def test_error_triggers(self):
+        """Fielding Run Value (Error) <= -5 → エラー"""
+        s = make_stats(error_run_value=-5.0)
+        assert "エラー" in assess_red_special(s)
 
-    def test_chance_batsu_at_exact_threshold(self):
-        """差がちょうど -0.060 → チャンス×"""
-        s = make_stats(risp_avg=0.200, season_avg=0.260)
-        assert "チャンス×" in assess_red_special(s)
+    def test_error_just_above(self):
+        s = make_stats(error_run_value=-4.9)
+        assert "エラー" not in assess_red_special(s)
 
-    def test_chance_batsu_just_above_threshold(self):
-        """差が -0.059 → 付与しない"""
-        s = make_stats(risp_avg=0.201, season_avg=0.260)
-        assert "チャンス×" not in assess_red_special(s)
+    def test_error_none_skipped(self):
+        s = make_stats()  # error_run_value=None by default
+        assert "エラー" not in assess_red_special(s)
 
-    def test_chance_batsu_zero_avg_skipped(self):
-        s = make_stats(risp_avg=0.0, season_avg=0.260)
-        assert "チャンス×" not in assess_red_special(s)
+    # ── 併殺 ──
+    def test_heisatsu_triggers(self):
+        """Sprint Speed <= 26.0 AND GIDP >= 15 → 併殺"""
+        s = make_stats(sprint_speed=26.0, gdp=15)
+        assert "併殺" in assess_red_special(s)
+
+    def test_heisatsu_requires_low_speed(self):
+        """Sprint Speed > 26.0 → 付与しない"""
+        s = make_stats(sprint_speed=26.1, gdp=15)
+        assert "併殺" not in assess_red_special(s)
+
+    def test_heisatsu_requires_gdp(self):
+        """GIDP < 15 → 付与しない"""
+        s = make_stats(sprint_speed=26.0, gdp=14)
+        assert "併殺" not in assess_red_special(s)
+
+    # ── ムード✕ ──
+    def test_mood_batsu_triggers(self):
+        """WPA <= -3.0 → ムード✕"""
+        s = make_stats(wpa=-3.0)
+        assert "ムード✕" in assess_red_special(s)
+
+    def test_mood_batsu_just_above(self):
+        s = make_stats(wpa=-2.9)
+        assert "ムード✕" not in assess_red_special(s)
 
     def test_no_red_on_neutral_stats(self):
         """デフォルト中立値ではいかなる赤特も付与されない"""
         s = make_stats()
         assert assess_red_special(s) == []
 
-    def test_furikun_and_chance_batsu_coexist(self):
-        """扇風機とチャンス×は同時に付与できる"""
-        s = make_stats(k_percent=35.0, risp_avg=0.190, season_avg=0.260)
+    def test_furikun_and_heisatsu_coexist(self):
+        """扇風機と併殺は同時に付与できる"""
+        s = make_stats(k_percent=35.0, sprint_speed=25.0, gdp=20)
         result = assess_red_special(s)
         assert "扇風機" in result
-        assert "チャンス×" in result
+        assert "併殺" in result

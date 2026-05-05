@@ -101,26 +101,33 @@ class TestBasicVelocity:
 
 
 class TestBasicControl:
-    def test_s_rank_very_low_bb(self):
-        assert _assess_control(3.0) == "S"
+    """コントロール = Zone% + (15 - BB%)。BREAKPOINTS=[65,60,55,50,45,40,35]"""
+
+    def test_s_rank(self):
+        # zone=55, bb=4 → 55+11=66 >= 65 → S
+        assert _assess_control(55.0, 4.0) == "S"
 
     def test_a_rank(self):
-        assert _assess_control(4.5) == "A"
+        # zone=50, bb=5 → 50+10=60 >= 60 → A
+        assert _assess_control(50.0, 5.0) == "A"
 
     def test_b_rank(self):
-        assert _assess_control(6.0) == "B"
+        # zone=45, bb=5 → 45+10=55 >= 55 → B
+        assert _assess_control(45.0, 5.0) == "B"
 
     def test_c_rank(self):
-        assert _assess_control(7.5) == "C"
+        # zone=40, bb=5 → 40+10=50 >= 50 → C
+        assert _assess_control(40.0, 5.0) == "C"
 
     def test_g_rank_high_bb(self):
-        assert _assess_control(20.0) == "G"
+        # zone=30, bb=20 → 30-5=25 < 35 → G
+        assert _assess_control(30.0, 20.0) == "G"
 
     def test_boundary_s_a(self):
-        # 3.5 → S (= threshold)
-        assert _assess_control(3.5) == "S"
-        # 3.6 → A (threshold 超え)
-        assert _assess_control(3.6) == "A"
+        # zone=50, bb=0 → 50+15=65 → S (境界ちょうど)
+        assert _assess_control(50.0, 0.0) == "S"
+        # zone=50, bb=0.1 → 64.9 → A
+        assert _assess_control(50.0, 0.1) == "A"
 
 
 class TestBasicStamina:
@@ -308,16 +315,19 @@ class TestRankAbilities:
         result = assess_rank_abilities(make_stats())
         assert set(result.keys()) == {"打たれ強さ", "回復", "クイック", "対ピンチ", "対左打者", "ノビ"}
 
-    def test_打たれ強さ_gold_at_99th(self):
-        stats = make_stats(exit_vel_percentile=99)
+    def test_打たれ強さ_gold_at_lob85(self):
+        # LOB% >= 85 → 金
+        stats = make_stats(lob_percent=85.0)
         assert assess_rank_abilities(stats)["打たれ強さ"] == "金"
 
-    def test_打たれ強さ_s_at_90th(self):
-        stats = make_stats(exit_vel_percentile=92)
+    def test_打たれ強さ_a_at_lob80(self):
+        # LOB_NOBITARESOSA_BREAKPOINTS[1]=80.0 → A
+        stats = make_stats(lob_percent=80.0)
         assert assess_rank_abilities(stats)["打たれ強さ"] == "A"
 
-    def test_ノビ_gold_at_99th(self):
-        stats = make_stats(k_percentile=99)
+    def test_ノビ_gold_on_high_ivb(self):
+        # 4seam IVB >= 20in → 金
+        stats = make_stats(pitches=[make_pitch("FF", ivb=20.0)])
         assert assess_rank_abilities(stats)["ノビ"] == "金"
 
     def test_対ピンチ_gold_on_great_diff(self):
@@ -331,20 +341,22 @@ class TestRankAbilities:
         assert assess_rank_abilities(stats)["対ピンチ"] == "G"
 
     def test_クイック_gold_on_high_cs_rate(self):
-        # CS率 45% → 金
-        stats = make_stats(sb_against=11, cs_against=9)
+        # CS率 60% (= 6/10) → 金 (QUICK_GOLD_CS_RATE=0.60)
+        stats = make_stats(sb_against=4, cs_against=6)
         assert assess_rank_abilities(stats)["クイック"] == "金"
 
     def test_クイック_default_c_on_no_data(self):
         stats = make_stats(sb_against=0, cs_against=0)
         assert assess_rank_abilities(stats)["クイック"] == "C"
 
-    def test_回復_c_when_ir_is_none(self):
-        stats = make_stats(ir_stranded_pct=None)
+    def test_回復_c_on_155ip(self):
+        # 先発 (GS=28/G=30): IP=155 → RECOVERY_BREAKPOINTS_IP[3]=155 → C
+        stats = make_stats(ip=155.0, games=30, games_started=28)
         assert assess_rank_abilities(stats)["回復"] == "C"
 
-    def test_回復_s_on_high_ir(self):
-        stats = make_stats(ir_stranded_pct=92.0)
+    def test_回復_s_on_195ip(self):
+        # 先発: IP=195 → RECOVERY_BREAKPOINTS_IP[0]=195 → S
+        stats = make_stats(ip=195.0, games=30, games_started=28)
         assert assess_rank_abilities(stats)["回復"] == "S"
 
 
@@ -353,12 +365,14 @@ class TestRankAbilities:
 # ══════════════════════════════════════════════
 
 class TestGoldSpecial:
-    def test_doctor_k_at_99th(self):
-        stats = make_stats(k_percentile=99)
+    def test_doctor_k_at_35pct(self):
+        # K% >= 35.0 → ドクターK
+        stats = make_stats(k_percent=35.0)
         assert "ドクターK" in assess_gold_special(stats)
 
-    def test_doctor_k_not_at_90th(self):
-        stats = make_stats(k_percentile=95)
+    def test_doctor_k_not_below_35pct(self):
+        # K% = 34.9 → 付与しない
+        stats = make_stats(k_percent=34.9)
         assert "ドクターK" not in assess_gold_special(stats)
 
     def test_monster_stuff_at_99th(self):

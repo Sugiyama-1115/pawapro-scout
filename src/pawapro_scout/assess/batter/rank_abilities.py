@@ -2,30 +2,37 @@
 assess/batter/rank_abilities.py
 野手のランク制能力 (7種) を査定する。
 
-能力名       指標                         ランク範囲
-ケガしにくさ  出場試合数                    金/S/A/B/C/D/E/F/G
-走塁         xbt_percent (XBT%)           S/A/B/C/D/E/F/G
-盗塁         SB 数                         金/S/A/B/C/D/E/F/G
-対左投手     vs_lhp_woba - vs_rhp_woba    金/S/A/B/C/D/E/F/G
-対変化球     K% (低いほど良い)             S/A/B/C/D/E/F/G
-送球         arm_strength_mph (位置依存)   S/A/B/C/D/E/F/G
-キャッチャー  framing_runs                 S/A/B/C/D/E/F/G (捕手のみ, 他は None)
+能力名       指標                               ランク範囲
+ケガしにくさ  出場試合数                          金/S/A/B/C/D/E/F/G
+走塁         Baserunning Run Value (累積)        金/S/A/B/C/D/E/F/G
+盗塁         SB数 + 成功率                       金/S/A/B/C/D/E/F/G
+チャンス     RISP打率 - 通常打率 (差分)           金/S/A/B/C/D/E/F/G
+対左投手     vs LHP wOBA - vs RHP wOBA (差分)   金/S/A/B/C/D/E/F/G
+送球         Fielding Run Value (Arm, 累積)      金/S/A/B/C/D/E/F/G
+キャッチャー  framing_runs と blocking_runs の min 金/S/A/B/C/D/E/F/G (捕手のみ, 他は None)
 """
 
 from __future__ import annotations
 
 from pawapro_scout.config import (
-    ARM_IF_BREAKPOINTS,
-    ARM_OF_BREAKPOINTS,
+    ARM_RV_BREAKPOINTS,
+    ARM_RV_GOLD,
     BATTER_VS_LHP_BREAKPOINTS,
     BATTER_VS_LHP_GOLD_MIN,
-    BASERUNNING_BREAKPOINTS,
+    BASERUNNING_RV_BREAKPOINTS,
+    BASERUNNING_RV_GOLD,
     CATCHER_RANK_BREAKPOINTS,
+    CATCHER_RANK_GOLD,
+    CHANCE_BREAKPOINTS,
+    CHANCE_GOLD_MIN,
     DURABILITY_BREAKPOINTS,
     DURABILITY_GOLD_MIN,
-    STEAL_BREAKPOINTS,
+    STEAL_A_MIN,
+    STEAL_A_RATE,
+    STEAL_D_RATE,
+    STEAL_F_RATE,
     STEAL_GOLD_MIN,
-    VS_BREAKING_BREAKPOINTS,
+    STEAL_GOLD_RATE,
     score_to_grade,
 )
 from pawapro_scout.models import BatterStats
@@ -41,9 +48,9 @@ def assess_rank_abilities(stats: BatterStats, position: str = "OF") -> dict[str,
         "ケガしにくさ": _ケガしにくさ(stats),
         "走塁":         _走塁(stats),
         "盗塁":         _盗塁(stats),
+        "チャンス":     _チャンス(stats),
         "対左投手":     _対左投手(stats),
-        "対変化球":     _対変化球(stats),
-        "送球":         _送球(stats, pos),
+        "送球":         _送球(stats),
         "キャッチャー": _キャッチャー(stats) if pos == _CATCHER else None,
     }
 
@@ -59,16 +66,63 @@ def _ケガしにくさ(stats: BatterStats) -> str:
 
 
 def _走塁(stats: BatterStats) -> str:
-    return score_to_grade(stats.xbt_percent, BASERUNNING_BREAKPOINTS)
+    """Baserunning Run Value (累積) → グレード。データ未取得時は C。"""
+    if stats.baserunning_run_value is None:
+        return "C"
+    rv = stats.baserunning_run_value
+    if rv >= BASERUNNING_RV_GOLD:
+        return "金"
+    return score_to_grade(rv, BASERUNNING_RV_BREAKPOINTS)
 
 
 def _盗塁(stats: BatterStats) -> str:
-    if stats.sb >= STEAL_GOLD_MIN:
+    """
+    SB数 + 盗塁成功率 でランクを決定する。
+    金: 40盗塁以上 AND 成功率 >= 90%
+    A:  20盗塁以上 AND 成功率 >= 85%
+    D:  成功率 ~75%
+    F:  成功率 <= 60%
+    """
+    total = stats.sb + stats.cs
+    rate = stats.sb / total if total > 0 else 0.0
+
+    if stats.sb >= STEAL_GOLD_MIN and rate >= STEAL_GOLD_RATE:
         return "金"
-    return score_to_grade(float(stats.sb), [float(b) for b in STEAL_BREAKPOINTS])
+    if stats.sb >= STEAL_A_MIN and rate >= STEAL_A_RATE:
+        return "A"
+    # 成功率のみでB〜G を決定
+    if rate >= 0.85:
+        return "B"
+    if rate >= 0.80:
+        return "C"
+    if rate >= STEAL_D_RATE:
+        return "D"
+    if rate >= 0.65:
+        return "E"
+    if rate >= STEAL_F_RATE:
+        return "F"
+    return "G"
+
+
+def _チャンス(stats: BatterStats) -> str:
+    """
+    RISP打率 - 通常打率 → グレード。差が正 = 得点圏で強い。
+    金: diff >= 0.080 / G: diff < -0.060 (旧チャンス× 相当)
+    データ未取得 (0.0) の場合は C を返す。
+    """
+    if stats.risp_avg == 0.0 or stats.season_avg == 0.0:
+        return "C"
+    diff = stats.risp_avg - stats.season_avg
+    if diff >= CHANCE_GOLD_MIN:
+        return "金"
+    return score_to_grade(diff, CHANCE_BREAKPOINTS)
 
 
 def _対左投手(stats: BatterStats) -> str:
+    """
+    vs LHP wOBA - vs RHP wOBA → グレード。差が正 = 左投手得意。
+    金: diff >= 0.100
+    """
     if stats.vs_lhp_woba == 0.0 or stats.vs_rhp_woba == 0.0:
         return "C"
     diff = stats.vs_lhp_woba - stats.vs_rhp_woba
@@ -77,24 +131,33 @@ def _対左投手(stats: BatterStats) -> str:
     return score_to_grade(diff, BATTER_VS_LHP_BREAKPOINTS)
 
 
-def _対変化球(stats: BatterStats) -> str:
-    """K% が低いほど良い → 昇順ブレークポイントで判定。"""
-    k = stats.k_percent
-    for threshold, grade in zip(VS_BREAKING_BREAKPOINTS, ["S", "A", "B", "C", "D", "E", "F"]):
-        if k <= threshold:
-            return grade
-    return "G"
-
-
-def _送球(stats: BatterStats, position: str) -> str:
-    if stats.arm_strength_mph is None:
+def _送球(stats: BatterStats) -> str:
+    """
+    Fielding Run Value (Arm, 累積) → グレード。
+    arm_run_value 未取得時は C を返す。
+    """
+    if stats.arm_run_value is None:
         return "C"
-    bp = ARM_OF_BREAKPOINTS if position in _OF_POSITIONS else ARM_IF_BREAKPOINTS
-    return score_to_grade(stats.arm_strength_mph, bp)
+    rv = stats.arm_run_value
+    if rv >= ARM_RV_GOLD:
+        return "金"
+    return score_to_grade(rv, ARM_RV_BREAKPOINTS)
 
 
 def _キャッチャー(stats: BatterStats) -> str:
-    """捕手のフレーミング → グレード。データなしは C。"""
-    if stats.framing_runs is None:
+    """
+    捕手: framing_runs と blocking_runs の min (両方の水準が求められる)。
+    どちらかが None の場合は framing のみで判定。
+    """
+    framing = stats.framing_runs
+    blocking = stats.blocking_runs
+
+    if framing is None:
         return "C"
-    return score_to_grade(stats.framing_runs, CATCHER_RANK_BREAKPOINTS)
+
+    # 両指標あれば min を使用
+    effective = min(framing, blocking) if blocking is not None else framing
+
+    if effective >= CATCHER_RANK_GOLD:
+        return "金"
+    return score_to_grade(effective, CATCHER_RANK_BREAKPOINTS)
