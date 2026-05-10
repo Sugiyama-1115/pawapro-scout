@@ -131,31 +131,65 @@ class TestBasicControl:
 
 
 class TestBasicStamina:
-    def test_starter_s_rank(self):
-        stats = make_stats(avg_pitches_per_game=102.0, games=30, games_started=28)
+    """1試合あたりの平均投球数 (avg_pitches_per_game) で先発・救援を統一評価する。
+    breakpoints: [95, 85, 75, 65, 45, 0] → S, A, B, C, D, E
+    """
+
+    def test_s_rank_high_pitch_count(self):
+        # 100 球/試合 → S
+        stats = make_stats(avg_pitches_per_game=100.0)
         assert _assess_stamina(stats) == "S"
 
-    def test_starter_c_rank(self):
-        stats = make_stats(avg_pitches_per_game=87.0, games=30, games_started=28)
+    def test_a_rank(self):
+        # 90 球/試合 → A
+        stats = make_stats(avg_pitches_per_game=90.0)
+        assert _assess_stamina(stats) == "A"
+
+    def test_b_rank(self):
+        # 80 球/試合 → B
+        stats = make_stats(avg_pitches_per_game=80.0)
+        assert _assess_stamina(stats) == "B"
+
+    def test_c_rank(self):
+        # 70 球/試合 → C
+        stats = make_stats(avg_pitches_per_game=70.0)
         assert _assess_stamina(stats) == "C"
 
-    def test_starter_none_defaults_to_c(self):
-        stats = make_stats(avg_pitches_per_game=None, games=30, games_started=28)
-        assert _assess_stamina(stats) == "C"
-
-    def test_reliever_s_rank(self):
-        stats = make_stats(games=70, games_started=0)
-        assert _assess_stamina(stats) == "S"
-
-    def test_reliever_d_rank(self):
-        # 45 games: breakpoints[65,60,55,50,40,...] → 45 は 40以上50未満 → D
-        stats = make_stats(games=45, games_started=0)
+    def test_d_rank(self):
+        # 50 球/試合 → D
+        stats = make_stats(avg_pitches_per_game=50.0)
         assert _assess_stamina(stats) == "D"
 
-    def test_reliever_c_rank(self):
-        # 50 games: 50以上 → C
-        stats = make_stats(games=50, games_started=0)
+    def test_e_rank_low_pitch_count(self):
+        # 30 球/試合 → E (救援投手の典型値)
+        stats = make_stats(avg_pitches_per_game=30.0)
+        assert _assess_stamina(stats) == "E"
+
+    def test_boundary_s_a(self):
+        # 95.0 → S (= threshold)
+        assert _assess_stamina(make_stats(avg_pitches_per_game=95.0)) == "S"
+        # 94.9 → A
+        assert _assess_stamina(make_stats(avg_pitches_per_game=94.9)) == "A"
+
+    def test_boundary_d_e(self):
+        # 45.0 → D (= threshold)
+        assert _assess_stamina(make_stats(avg_pitches_per_game=45.0)) == "D"
+        # 44.9 → E
+        assert _assess_stamina(make_stats(avg_pitches_per_game=44.9)) == "E"
+
+    def test_none_defaults_to_c(self):
+        stats = make_stats(avg_pitches_per_game=None)
         assert _assess_stamina(stats) == "C"
+
+    def test_zero_or_negative_defaults_to_c(self):
+        # データなし扱い → C
+        assert _assess_stamina(make_stats(avg_pitches_per_game=0.0)) == "C"
+
+    def test_reliever_uses_same_logic(self):
+        # 救援投手 (games_started=0) でも avg_pitches_per_game で評価される
+        # 20 球/試合 → E (救援は通常 E グレード)
+        stats = make_stats(avg_pitches_per_game=20.0, games=70, games_started=0)
+        assert _assess_stamina(stats) == "E"
 
     def test_assess_basic_returns_pitcher_basic(self):
         from pawapro_scout.models import PitcherBasic

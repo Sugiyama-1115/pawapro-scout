@@ -110,22 +110,38 @@ class TestBasicTrajectory:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestBasicMeet:
     def test_s_rank_high_score(self):
-        s = make_stats(xba=1.0, whiff_percent=0.0)
+        """xBA=0.350 → S（S 範囲内）"""
+        s = make_stats(xba=0.350)
         assert _assess_meet(s) == "S"
 
     def test_s_rank_at_boundary(self):
-        """score >= 303 → S. xBA=0.8, whiff=0 -> 340"""
-        s = make_stats(xba=0.8, whiff_percent=0.0)
+        """xBA=0.300 → S（S 境界値）"""
+        s = make_stats(xba=0.300)
         assert _assess_meet(s) == "S"
 
     def test_a_rank(self):
-        """score 287~302 → A. xBA=0.7, whiff=20 -> 290"""
-        s = make_stats(xba=0.7, whiff_percent=20.0)
+        """xBA=0.280 → A（A の下限）"""
+        s = make_stats(xba=0.280)
         assert _assess_meet(s) == "A"
 
     def test_g_rank_low_score(self):
-        """xBA=0.1, whiff=80 -> 50 → G"""
-        s = make_stats(xba=0.1, whiff_percent=80.0)
+        """xBA=0.180 → G（最低グレード）"""
+        s = make_stats(xba=0.180)
+        assert _assess_meet(s) == "G"
+
+    def test_j_soto_equivalent(self):
+        """J・ソト相当: xBA=0.288 → A グレード"""
+        s = make_stats(xba=0.288)
+        assert _assess_meet(s) == "A"
+
+    def test_xba_boundary_260_is_b_rank(self):
+        """xBA=0.260 は B グレード下限"""
+        s = make_stats(xba=0.260)
+        assert _assess_meet(s) == "B"
+
+    def test_xba_boundary_180_is_g_rank(self):
+        """xBA=0.180 は G グレード"""
+        s = make_stats(xba=0.180)
         assert _assess_meet(s) == "G"
 
 

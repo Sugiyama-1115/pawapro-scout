@@ -4,7 +4,7 @@ assess/batter/basic.py
 
 能力       指標
 弾道       avg_launch_angle → 1/2/3/4  (sweet_spot% >= 35% なら最低3)
-ミート     xBA*300 + (100 - Whiff%) → S/A/B/C/D/E/F/G
+ミート     xBA → S/A/B/C/D/E/F/G
 パワー     max_exit_velocity (mph) → S/A/B/C/D/E/F/G
 走力       sprint_speed (ft/sec) → S/A/B/C/D/E/F/G
 肩力       外野=arm_strength_mph / 内野=arm_strength_mph / 捕手=pop_time
@@ -74,9 +74,8 @@ def _assess_trajectory(stats: BatterStats) -> int:
 
 
 def _assess_meet(stats: BatterStats) -> str:
-    """ミート: xBA*300 + (100 - Whiff%)"""
-    score = stats.xba * 300.0 + (100.0 - stats.whiff_percent)
-    return score_to_grade(score, MEET_BREAKPOINTS)
+    """ミート: xBA 直接値 (.300以上=S, .280-.299=A, ...)"""
+    return score_to_grade(stats.xba, MEET_BREAKPOINTS)
 
 
 def _assess_power(stats: BatterStats) -> str:

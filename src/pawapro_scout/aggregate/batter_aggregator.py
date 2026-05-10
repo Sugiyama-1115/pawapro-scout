@@ -118,6 +118,9 @@ class BatterAggregator:
         # ── Statcast pitch-level 集計 ─────────────────────
         sc = self._statcast_metrics(statcast_batter)
 
+        # ── bref フォールバック (Statcast events) ──────────
+        sc_sb, sc_cs, sc_g = self._statcast_bref_fallback(statcast_batter)
+
         # ── FanGraphs Splits ──────────────────────────────
         risp_row  = sp.get("risp",       pd.DataFrame())
         lhp_row   = sp.get("vs_lhp",    pd.DataFrame())
@@ -141,7 +144,7 @@ class BatterAggregator:
             sweet_spot_percent = _get(row_exp, "sweet_spot_percent"),
 
             # ミート
-            xba           = _get(row_exp, "xba"),
+            xba           = _get(row_exp, "xba", "est_ba"),
             whiff_percent = _get(row_exp, "whiff_percent"),
 
             # パワー
@@ -174,12 +177,12 @@ class BatterAggregator:
             lob_percent = _pct(row_fg, "LOB%"),
             ops_plus    = int(_get(row_fg, "OPS+", default=0)),
 
-            # Baseball Reference
-            sb    = int(_get(row_bref, "SB", default=0)),
-            cs    = int(_get(row_bref, "CS", default=0)),
+            # Baseball Reference (Statcast events でフォールバック)
+            sb    = int(_get(row_bref, "SB",  default=sc_sb)),
+            cs    = int(_get(row_bref, "CS",  default=sc_cs)),
             gdp   = int(_get(row_bref, "GDP", default=0)),
-            sh    = int(_get(row_bref, "SH", default=0)),
-            games = int(_get(row_bref, "G", default=0)),
+            sh    = int(_get(row_bref, "SH",  default=0)),
+            games = int(_get(row_bref, "G",   default=sc_g)),
 
             # パーセンタイル
             xba_percentile = int(_get(row_pct, "xba", default=0)),
@@ -199,6 +202,34 @@ class BatterAggregator:
             oppo_hr_count        = sc["oppo_hr_count"],
             multi_hit_game_count = sc["multi_hit_game_count"],
         )
+
+    # ──────────────────────────────────────────────
+    # 内部: bref 代替 (Statcast events)
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _statcast_bref_fallback(df: pd.DataFrame) -> tuple[int, int, int]:
+        """
+        pitch-level DataFrame から SB / CS / G を推定する。
+        bref が取得できなかった場合のフォールバック。
+
+        Returns:
+            (sb, cs, games)
+        """
+        if df is None or df.empty or "events" not in df.columns:
+            return 0, 0, 0
+
+        _SB_EVENTS = frozenset(["stolen_base_2b", "stolen_base_3b", "stolen_base_home"])
+        _CS_EVENTS = frozenset(["caught_stealing_2b", "caught_stealing_3b", "caught_stealing_home"])
+
+        ev = df["events"].dropna()
+        sb = int(ev.isin(_SB_EVENTS).sum())
+        cs = int(ev.isin(_CS_EVENTS).sum())
+
+        group_col = "game_pk" if "game_pk" in df.columns else "game_date"
+        games = int(df[group_col].nunique()) if group_col in df.columns else 0
+
+        return sb, cs, games
 
     # ──────────────────────────────────────────────
     # 内部: Statcast pitch-level 集計

@@ -7,16 +7,10 @@ from __future__ import annotations
 
 from pawapro_scout.config import (
     CONTROL_BREAKPOINTS,
-    STAMINA_SP_BREAKPOINTS,
+    STAMINA_PITCHERS_BREAKPOINTS,
     score_to_grade,
 )
 from pawapro_scout.models import PitcherBasic, PitcherStats
-
-# 救援投手スタミナ: 登板ゲーム数 基準 (先発除く)
-_STAMINA_RP_BREAKPOINTS = [65.0, 60.0, 55.0, 50.0, 40.0, 30.0, 15.0]
-
-# 先発/救援の境界: GS が G の半数以上なら先発
-_SP_THRESHOLD_RATIO = 0.5
 
 
 def assess_basic(stats: PitcherStats) -> PitcherBasic:
@@ -60,29 +54,12 @@ def _assess_control(zone_pct: float, bb_pct: float) -> str:
 # ──────────────────────────────────────────────
 
 def _assess_stamina(stats: PitcherStats) -> str:
-    """先発 / 救援を判定してスタミナグレードを返す。"""
-    is_starter = _is_starter(stats)
-
-    if is_starter:
-        return _stamina_sp(stats.avg_pitches_per_game)
-    else:
-        return _stamina_rp(stats.games)
-
-
-def _is_starter(stats: PitcherStats) -> bool:
-    """GS / G の比率で先発か救援かを判定する。"""
-    if stats.games == 0:
-        return False
-    return (stats.games_started / stats.games) >= _SP_THRESHOLD_RATIO
-
-
-def _stamina_sp(avg_pitches: float | None) -> str:
-    """先発: 平均投球数 → グレード。データがない場合は C を返す。"""
+    """
+    1試合あたりの平均投球数 (pitch_count / p_game) でグレード判定。
+    先発・救援を問わず統一基準で評価する。
+    データなしは C をデフォルトとする。
+    """
+    avg_pitches = stats.avg_pitches_per_game
     if avg_pitches is None or avg_pitches <= 0:
         return "C"
-    return score_to_grade(avg_pitches, STAMINA_SP_BREAKPOINTS)
-
-
-def _stamina_rp(games: int) -> str:
-    """救援: 登板ゲーム数 → グレード。"""
-    return score_to_grade(float(games), _STAMINA_RP_BREAKPOINTS)
+    return score_to_grade(float(avg_pitches), STAMINA_PITCHERS_BREAKPOINTS)

@@ -87,8 +87,8 @@ print(result[['name_last','name_first','key_mlbam']].to_string())
 
 ### STEP 6 — players.csv 更新
 
-取得した情報を `input/players.csv` に書き込む。
-すでに存在する行は `mlbam_id` が空の場合のみ更新し、既存データは上書きしない。
+`input/players.csv` をヘッダー行 + 今回の査定対象選手のみで上書きする。
+既存の無関係な行はすべて削除し、今回の対象選手だけが残った状態にする。
 
 書き込む列:
 - `season`, `team`, `name_jp`
@@ -97,10 +97,10 @@ print(result[['name_last','name_first','key_mlbam']].to_string())
 
 ### STEP 7 — パワプロ査定を実行
 
-各選手について以下を実行する。
+`--player` 引数なしで一括実行する。CSV に含まれる全選手が対象になる。
 
 ```bash
-uv run python -m pawapro_scout --season <season> --player <name_jp>
+uv run python -m pawapro_scout --season <season>
 ```
 
 エラーが出た場合はエラー内容を表示して次の選手に進む。

@@ -112,6 +112,9 @@ class PitcherAggregator:
         # ── Statcast pitch-level 集計 ─────────────────────
         sc = self._statcast_metrics(statcast_pitcher)
 
+        # ── bref フォールバック (Statcast events) ──────────
+        sc_sb_against, sc_cs_against = self._statcast_bref_pitcher_fallback(statcast_pitcher)
+
         # ── 球種リスト (PitchAggregated) ─────────────────
         pitches = self._build_pitches(statcast_pitcher, pitch_arsenal)
 
@@ -187,10 +190,10 @@ class PitcherAggregator:
             release_x_stddev = rel_x_std,
             release_z_stddev = rel_z_std,
 
-            # bref
+            # bref (Statcast events でフォールバック)
             pickoffs   = int(_get(row_bref, "PO", default=0)),
-            sb_against = int(_get(row_bref, "SB", default=0)),
-            cs_against = int(_get(row_bref, "CS", default=0)),
+            sb_against = int(_get(row_bref, "SB", default=sc_sb_against)),
+            cs_against = int(_get(row_bref, "CS", default=sc_cs_against)),
 
             # P-OAA
             p_oaa = int(_get(row_pfd, "outs_above_average", default=0)) or None,
@@ -263,6 +266,30 @@ class PitcherAggregator:
         return sorted(results, key=lambda p: p.usage_pct, reverse=True)
 
     # ──────────────────────────────────────────────
+    # 内部: bref 代替 (Statcast events)
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _statcast_bref_pitcher_fallback(df: pd.DataFrame) -> tuple[int, int]:
+        """
+        pitch-level DataFrame から SB (盗塁許可) / CS (盗塁刺) を推定する。
+        bref が取得できなかった場合のフォールバック。
+
+        Returns:
+            (sb_against, cs_against)
+        """
+        if df is None or df.empty or "events" not in df.columns:
+            return 0, 0
+
+        _SB_EVENTS = frozenset(["stolen_base_2b", "stolen_base_3b", "stolen_base_home"])
+        _CS_EVENTS = frozenset(["caught_stealing_2b", "caught_stealing_3b", "caught_stealing_home"])
+
+        ev = df["events"].dropna()
+        sb_against = int(ev.isin(_SB_EVENTS).sum())
+        cs_against = int(ev.isin(_CS_EVENTS).sum())
+        return sb_against, cs_against
+
+    # ──────────────────────────────────────────────
     # 内部: Statcast pitch-level 集計
     # ──────────────────────────────────────────────
 
@@ -270,9 +297,10 @@ class PitcherAggregator:
         defaults = {"max_velocity_mph": 0.0}
         if df is None or df.empty:
             return defaults
+        if "release_speed" not in df.columns:
+            return defaults
 
-        ff_mask = df["pitch_type"].isin(["FF", "FA"]) if "pitch_type" in df.columns else pd.Series(True, index=df.index)
-        max_v = float(df.loc[ff_mask, "release_speed"].max()) if "release_speed" in df.columns and ff_mask.any() else 0.0
+        max_v = float(df["release_speed"].max())
         return {"max_velocity_mph": max_v}
 
     def _release_stddev(self, df: pd.DataFrame) -> tuple[float, float]:

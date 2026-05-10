@@ -81,8 +81,8 @@ def percentile_to_grade(pct: int, breakpoints: list[int] | None = None) -> str:
 TRAJECTORY_BREAKPOINTS = [18.1, 12.1, 5.0]          # → 4, 3, 2, 1
 SWEET_SPOT_MIN_FOR_3 = 35.0                          # sweet_spot% がこれ以上なら弾道は最低3
 
-# ミート: xBA*300 + (100 - Whiff%)
-MEET_BREAKPOINTS = [303.0, 287.0, 271.0, 255.0, 239.0, 223.0, 207.0]
+# ミート: xBA 直接値（.300 以上=S, .280-.299=A, .260-.279=B, .240-.259=C, .220-.239=D, .200-.219=E, .190-.199=F, .189 以下=G）
+MEET_BREAKPOINTS = [0.300, 0.280, 0.260, 0.240, 0.220, 0.200, 0.190]
 
 # パワー: Max Exit Velocity (mph)
 POWER_BREAKPOINTS = [118.0, 112.0, 108.0, 104.0, 100.0, 96.0, 90.0]
@@ -112,9 +112,9 @@ FIELDING_PERCENTILE_BREAKPOINTS = [99, 90, 75, 50, 35, 20, 5]
 # S>=65 / A>=60 / B>=55 / C>=50 / D>=45 / E>=40 / F>=35 / G<35
 CONTROL_BREAKPOINTS = [65.0, 60.0, 55.0, 50.0, 45.0, 40.0, 35.0]
 
-# スタミナ: 先発の平均投球数 P/G
-# S>=100 / A>=95 / B>=90 / C>=85 / D>=80 / E>=60 / F>=30 / G<30
-STAMINA_SP_BREAKPOINTS = [100.0, 95.0, 90.0, 85.0, 80.0, 60.0, 30.0]
+# スタミナ: 1試合あたりの平均投球数 (pitch_count / p_game) — 先発・救援共通
+# S: 95+, A: 85-94, B: 75-84, C: 65-74, D: 45-64, E: 0-44
+STAMINA_PITCHERS_BREAKPOINTS = [95.0, 85.0, 75.0, 65.0, 45.0, 0.0]
 
 # ────────────────────────────────────────────────
 # 変化球 分類

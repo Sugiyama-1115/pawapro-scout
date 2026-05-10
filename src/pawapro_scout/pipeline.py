@@ -48,7 +48,7 @@ from pawapro_scout.models import (
     PitcherStats,
 )
 from pawapro_scout.output.excel_exporter import export_excel
-from pawapro_scout.output.formatter import save_json
+from pawapro_scout.output.formatter import save_txt
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -123,7 +123,7 @@ class Pipeline:
         )
 
         # ── 出力 ──────────────────────────────────
-        self._save_json(record, player)
+        self._save_txt(record, player)
         self._save_excel(player, L, player_batter, player_pitcher)
 
         console.print(f"[green]  [OK] {player.name_jp} 完了[/green]")
@@ -362,10 +362,10 @@ class Pipeline:
     # 出力
     # ──────────────────────────────────────────────
 
-    def _save_json(self, record: PlayerRecord, player: PlayerInput) -> None:
-        path = self.output_dir / str(player.season) / "rating" / f"{player.name_jp}.json"
-        save_json(record, path)
-        console.print(f"  [green]JSON: {path}[/green]")
+    def _save_txt(self, record: PlayerRecord, player: PlayerInput) -> None:
+        path = self.output_dir / str(player.season) / "rating" / f"{player.name_jp}.txt"
+        save_txt(record, path, team=player.team)
+        console.print(f"  [green]TXT : {path}[/green]")
 
     def _save_excel(
         self,

@@ -20,8 +20,7 @@ class TestScoreToGrade:
     """score_to_grade の境界値テスト"""
 
     def test_s_rank_at_boundary(self):
-        # ミート: xBA=0.310, Whiff=15% → スコア = 0.310*300 + (100-15) = 93+85 = 178
-        # MEET_BREAKPOINTS の最高値 (S境界) で S になること
+        # ミート: xBA 直接値、MEET_BREAKPOINTS[0] (S 境界) で S になること
         assert score_to_grade(MEET_BREAKPOINTS[0], MEET_BREAKPOINTS) == "S"
 
     def test_a_rank(self):
