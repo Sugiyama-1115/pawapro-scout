@@ -316,25 +316,24 @@ class PitcherAggregator:
         row_fg: pd.Series | None,
     ) -> float | None:
         """
-        先発のみ平均投球数を返す。
-        FanGraphs に Pitches / GS があればそちらを優先。
+        1試合あたりの平均投球数 (pitch_count / G) を返す。
+        先発・救援を問わず全試合の平均で計算する。
+        FanGraphs に Pitches / G があればそちらを優先。
         """
-        # FanGraphs から計算
+        # FanGraphs から計算: 全試合 (G) で割る
         if row_fg is not None:
             total_p = _get(row_fg, "Pitches", default=0.0)
-            gs      = _get(row_fg, "GS",      default=0.0)
-            if gs > 0 and total_p > 0:
-                return round(total_p / gs, 1)
+            g       = _get(row_fg, "G",       default=0.0)
+            if g > 0 and total_p > 0:
+                return round(total_p / g, 1)
 
-        # Statcast から計算 (先発ゲーム = 1イニング目から投げた)
+        # Statcast フォールバック: 全試合の平均球数
         if df is None or df.empty or "game_pk" not in df.columns:
             return None
         pitches_per_game = df.groupby("game_pk").size()
         if pitches_per_game.empty:
             return None
-        # 先発登板 = 50球以上を投げた試合のみ (救援登板を除外)
-        sp_games = pitches_per_game[pitches_per_game >= 50]
-        return round(float(sp_games.mean()), 1) if not sp_games.empty else None
+        return round(float(pitches_per_game.mean()), 1)
 
     def _zone_metrics(self, savant_zone: pd.DataFrame | None) -> tuple[float, float]:
         """Savant Search ゾーン別集計から低め投球率・ハート率を算出する。"""

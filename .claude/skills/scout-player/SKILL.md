@@ -102,7 +102,7 @@ print(result[['name_last','name_first','key_mlbam']].to_string())
 ```bash
 uv run python -m pawapro_scout --season <season>
 ```
-
+※必ずuv run pythonで実行する
 エラーが出た場合はエラー内容を表示して次の選手に進む。
 
 ### STEP 8 — 結果の表示

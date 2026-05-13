@@ -258,13 +258,22 @@ class TestStamina:
         assert result.ip == pytest.approx(175.0)
 
     def test_avg_pitches_per_game_calculated_from_fg(self):
-        """FanGraphs の Pitches / GS から算出される"""
-        result = build(pitching_stats_fg=make_pitching_fg(Pitches=3000, GS=30))
+        """FanGraphs の Pitches / G (全試合) から算出される (先発)"""
+        result = build(pitching_stats_fg=make_pitching_fg(Pitches=3000, G=30))
         assert result.avg_pitches_per_game == pytest.approx(100.0)
 
-    def test_avg_pitches_none_if_no_gs(self):
-        """GS = 0 のとき avg_pitches_per_game は None"""
-        result = build(pitching_stats_fg=make_pitching_fg(GS=0, Pitches=0))
+    def test_avg_pitches_per_game_for_reliever(self):
+        """救援投手 (GS=0) でも G で割って算出される"""
+        # 救援 70 登板で 1890 球 → 27 球/試合
+        result = build(pitching_stats_fg=make_pitching_fg(Pitches=1890, G=70, GS=0))
+        assert result.avg_pitches_per_game == pytest.approx(27.0)
+
+    def test_avg_pitches_none_if_no_data(self):
+        """G = 0 かつ Statcast も空のとき avg_pitches_per_game は None"""
+        result = build(
+            pitching_stats_fg=make_pitching_fg(G=0, Pitches=0),
+            statcast=pd.DataFrame(),
+        )
         assert result.avg_pitches_per_game is None
 
 
