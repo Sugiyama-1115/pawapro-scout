@@ -339,11 +339,11 @@ class Pipeline:
     # 査定
     # ──────────────────────────────────────────────
 
-    def _assess_batter(self, stats: BatterStats, position: str) -> BatterRating:
+    def _assess_batter(self, stats: BatterStats, position: str, age: int = 0) -> BatterRating:
         return BatterRating(
             basic          = assess_batter_basic(stats, position),
             rank_abilities = assess_batter_rank(stats, position),
-            gold_special   = assess_batter_gold(stats),
+            gold_special   = assess_batter_gold(stats, age=age, position=position),
             blue_special   = assess_batter_blue(stats),
             red_special    = assess_batter_red(stats),
         )

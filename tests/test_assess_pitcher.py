@@ -414,9 +414,10 @@ class TestGoldSpecial:
         assert "怪物球威" in assess_gold_special(stats)
 
     def test_hengenjizai_large_speed_range(self):
+        # 新基準: 速度差 >= 20mph + 全球種 RV/100 >= 0 (使用率 5% 以上)
         pitches = [
-            make_pitch("FF", vel=98.0),
-            make_pitch("CH", vel=75.0),  # 差 23mph >= 20
+            make_pitch("FF", vel=98.0, rv=2.0),
+            make_pitch("CH", vel=75.0, rv=1.0),  # 差 23mph >= 20
         ]
         stats = make_stats(pitches=pitches)
         assert "変幻自在" in assess_gold_special(stats)
@@ -430,6 +431,7 @@ class TestGoldSpecial:
         assert "変幻自在" not in assess_gold_special(stats)
 
     def test_kaido_on_high_ivb(self):
+        # 新基準: IVB >= 21.0
         pitches = [make_pitch("FF", ivb=22.0)]
         stats = make_stats(pitches=pitches)
         assert "怪童" in assess_gold_special(stats)
@@ -450,7 +452,8 @@ class TestGoldSpecial:
 
 class TestBlueSpecial:
     def test_datsusansen_on_high_k(self):
-        stats = make_stats(k_percent=30.0)
+        # 新基準: K% >= 27.0%
+        stats = make_stats(k_percent=27.0)
         assert "奪三振" in assess_blue_special(stats)
 
     def test_datsusansen_not_on_low_k(self):
@@ -466,70 +469,73 @@ class TestBlueSpecial:
         assert "リリース◯" not in assess_blue_special(stats)
 
     def test_kankyuu_maru_on_sufficient_diff(self):
-        pitches = [make_pitch("FF", vel=97.0), make_pitch("CH", vel=80.0)]  # 17mph
+        # 新基準: 速度差 >= 15mph + 有効球種 (usage >= 5%) 2 つ以上
+        pitches = [
+            make_pitch("FF", vel=97.0, usage=60.0),
+            make_pitch("CH", vel=80.0, usage=20.0),
+        ]
         stats = make_stats(pitches=pitches)
         assert "緩急◯" in assess_blue_special(stats)
 
     def test_kankyuu_maru_not_when_hengenjizai(self):
         # 20mph以上 → 変幻自在で 緩急◯ は付かない
-        pitches = [make_pitch("FF", vel=98.0), make_pitch("CH", vel=75.0)]  # 23mph
+        pitches = [
+            make_pitch("FF", vel=98.0, usage=60.0),
+            make_pitch("CH", vel=75.0, usage=20.0),
+        ]
         stats = make_stats(pitches=pitches)
         assert "緩急◯" not in assess_blue_special(stats)
 
     def test_tamamochichu_on_high_extension(self):
-        stats = make_stats(extension_percentile=92)
+        # 新基準: Extension >= 6.7ft
+        stats = make_stats(extension_ft=6.7)
         assert "球持ち◯" in assess_blue_special(stats)
 
     def test_emergency_maru_on_high_ir(self):
-        stats = make_stats(ir_stranded_pct=85.0)
+        # 新基準: IRS% >= 75%
+        stats = make_stats(ir_stranded_pct=75.0)
         assert "緊急登板◯" in assess_blue_special(stats)
 
     def test_low_zone_maru(self):
-        stats = make_stats(low_zone_pct=42.0)
+        # 新基準: Low Zone% >= 50%
+        stats = make_stats(low_zone_pct=50.0)
         assert "低め◯" in assess_blue_special(stats)
 
     def test_nigeball(self):
-        stats = make_stats(heart_zone_pct=18.0)
+        # 新基準: HR/9 <= 0.8
+        stats = make_stats(hr_per_9=0.7)
         assert "逃げ球" in assess_blue_special(stats)
 
     def test_nigeball_not_when_zero(self):
         # データなし (0.0) → 付与しない
-        stats = make_stats(heart_zone_pct=0.0)
+        stats = make_stats(hr_per_9=0.0)
         assert "逃げ球" not in assess_blue_special(stats)
 
     def test_natural_shoot_on_ff_large_hb(self):
+        # 新基準: FB HB >= 8インチ (ナチュシュに名称変更)
         pitches = [make_pitch("FF", hb=12.0)]
         stats = make_stats(pitches=pitches)
-        assert "ナチュラルシュート" in assess_blue_special(stats)
-
-    def test_runner_maru(self):
-        # risp - season = -0.040 <= -0.030
-        stats = make_stats(risp_xwoba=0.280, season_xwoba=0.320)
-        assert "対ランナー◯" in assess_blue_special(stats)
-
-    def test_tachiagarimaru(self):
-        # inning1 - season = -0.060 <= -0.040
-        stats = make_stats(inning1_xwoba=0.260, season_xwoba=0.320)
-        assert "立ち上がり◯" in assess_blue_special(stats)
+        assert "ナチュシュ" in assess_blue_special(stats)
 
     def test_jiriagari(self):
-        stats = make_stats(inning7plus_xwoba=0.290, season_xwoba=0.320)
+        # 新基準: 7回以降 xwOBA - 1回 xwOBA <= -0.030
+        stats = make_stats(inning7plus_xwoba=0.260, inning1_xwoba=0.300)
         assert "尻上がり" in assess_blue_special(stats)
 
-    def test_yodokoro_maru(self):
-        stats = make_stats(high_lev_xwoba=0.260, season_xwoba=0.320)
-        assert "要所◯" in assess_blue_special(stats)
+    def test_tachiagarimaru(self):
+        # 新基準: 1回 xwOBA <= .250
+        stats = make_stats(inning1_xwoba=0.250)
+        assert "立ち上がり◯" in assess_blue_special(stats)
 
     def test_no_blue_on_poor_conditions(self):
         # データなし・閾値未達の stats → 文脈依存の青特は付かない
         stats = make_stats(
-            k_percent=24.0,           # 奪三振: 28%未満 → 付かない
-            extension_percentile=70,  # 球持ち◯: 90th未満 → 付かない
+            k_percent=24.0,           # 奪三振: 27%未満 → 付かない
+            extension_ft=6.0,         # 球持ち◯: 6.7ft未満 → 付かない
             ir_stranded_pct=None,     # 緊急登板◯: データなし → 付かない
-            low_zone_pct=30.0,        # 低め◯: 40%未満 → 付かない
-            heart_zone_pct=0.0,       # 逃げ球: データなし → 付かない
-            inning1_xwoba=0.320,      # 立ち上がり◯: 差分なし → 付かない
-            risp_xwoba=0.320,         # 対ランナー◯: 差分なし → 付かない
+            low_zone_pct=30.0,        # 低め◯: 50%未満 → 付かない
+            hr_per_9=0.0,             # 逃げ球: データなし → 付かない
+            inning1_xwoba=0.320,      # 立ち上がり◯: .250超 → 付かない
         )
         result = assess_blue_special(stats)
         assert "奪三振" not in result
@@ -537,7 +543,6 @@ class TestBlueSpecial:
         assert "緊急登板◯" not in result
         assert "低め◯" not in result
         assert "立ち上がり◯" not in result
-        assert "対ランナー◯" not in result
 
 
 # ══════════════════════════════════════════════
@@ -546,7 +551,7 @@ class TestBlueSpecial:
 
 class TestRedSpecial:
     def test_shikyu_on_high_bb(self):
-        stats = make_stats(bb_percent=12.0)
+        stats = make_stats(bb_percent=11.0)
         assert "四球" in assess_red_special(stats)
 
     def test_shikyu_not_on_low_bb(self):
@@ -557,37 +562,31 @@ class TestRedSpecial:
         stats = make_stats(hard_hit_percent=48.0)
         assert "軽い球" in assess_red_special(stats)
 
-    def test_nukeball_on_large_stddev(self):
-        stats = make_stats(release_x_stddev=1.2, release_z_stddev=1.0)
-        assert "抜け球" in assess_red_special(stats)
-
-    def test_nukeball_not_on_small_stddev(self):
-        stats = make_stats(release_x_stddev=0.3, release_z_stddev=0.3)
-        assert "抜け球" not in assess_red_special(stats)
-
     def test_slow_starter(self):
-        # inning1 - season = +0.060 >= +0.050
+        # 新基準: inning1 - season >= +0.060
         stats = make_stats(inning1_xwoba=0.380, season_xwoba=0.320)
         assert "スロースターター" in assess_red_special(stats)
 
-    def test_runner_bad(self):
-        # risp - season = +0.040 >= +0.030
-        stats = make_stats(risp_xwoba=0.360, season_xwoba=0.320)
-        assert "対ランナー×" in assess_red_special(stats)
+    def test_ippatsu_on_high_hr9(self):
+        stats = make_stats(hr_per_9=1.5)
+        assert "一発" in assess_red_special(stats)
+
+    def test_makeun_on_low_rs(self):
+        # 新基準: RS/9 <= 3.0
+        stats = make_stats(run_support=3.0)
+        assert "負け運" in assess_red_special(stats)
+
+    def test_velo_unstable_on_diff(self):
+        # 球速安定✕: Max - Avg >= 3.1mph
+        stats = make_stats(max_velocity_mph=98.0, avg_velocity_mph=94.0)
+        assert "球速安定✕" in assess_red_special(stats)
 
     def test_no_red_on_good_stats(self):
         stats = make_stats(
             bb_percent=5.0,
             hard_hit_percent=35.0,
-            release_x_stddev=0.3,
-            release_z_stddev=0.3,
             inning1_xwoba=0.300,
-            risp_xwoba=0.300,
             season_xwoba=0.320,
+            hr_per_9=0.7,
         )
         assert assess_red_special(stats) == []
-
-    def test_runner_bad_not_triggered_when_season_zero(self):
-        """season_xwoba が 0.0 のとき (データなし) は判定しない"""
-        stats = make_stats(risp_xwoba=0.400, season_xwoba=0.0)
-        assert "対ランナー×" not in assess_red_special(stats)

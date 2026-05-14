@@ -421,33 +421,33 @@ class TestRankAbilities:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestGoldSpecial:
     def test_aachisuto_triggers(self):
-        # Barrel% >= 20% AND 平均打球角度 15〜20度
-        s = make_stats(barrel_percent=20.0, avg_launch_angle=17.0)
+        # 新基準: Barrel% >= 16.5% AND 平均打球角度 13〜23度
+        s = make_stats(barrel_percent=16.5, avg_launch_angle=17.0)
         assert "アーチスト" in assess_gold_special(s)
 
     def test_aachisuto_barrel_just_below(self):
-        # Barrel% = 19.9 → 付与しない
-        s = make_stats(barrel_percent=19.9, avg_launch_angle=17.0)
+        # Barrel% = 16.4 → 付与しない
+        s = make_stats(barrel_percent=16.4, avg_launch_angle=17.0)
         assert "アーチスト" not in assess_gold_special(s)
 
     def test_aachisuto_angle_out_of_range(self):
-        # 打球角度 14.9 → 付与しない
-        s = make_stats(barrel_percent=20.0, avg_launch_angle=14.9)
+        # 打球角度 12.9 → 付与しない
+        s = make_stats(barrel_percent=16.5, avg_launch_angle=12.9)
         assert "アーチスト" not in assess_gold_special(s)
 
     def test_hit_machine_triggers(self):
-        # xBA >= .310 AND Whiff% <= 15%
-        s = make_stats(xba=0.310, whiff_percent=15.0)
+        # 新基準: xBA >= .300 AND Whiff% <= 19.0%
+        s = make_stats(xba=0.300, whiff_percent=19.0)
         assert "安打製造機" in assess_gold_special(s)
 
     def test_hit_machine_xba_just_below(self):
-        # xBA = 0.309 → 付与しない
-        s = make_stats(xba=0.309, whiff_percent=15.0)
+        # xBA = 0.299 → 付与しない
+        s = make_stats(xba=0.299, whiff_percent=19.0)
         assert "安打製造機" not in assess_gold_special(s)
 
     def test_hit_machine_whiff_too_high(self):
-        # Whiff% = 15.1 → 付与しない
-        s = make_stats(xba=0.310, whiff_percent=15.1)
+        # Whiff% = 19.1 → 付与しない
+        s = make_stats(xba=0.300, whiff_percent=19.1)
         assert "安打製造機" not in assess_gold_special(s)
 
     def test_no_gold_on_neutral_stats(self):
@@ -455,8 +455,8 @@ class TestGoldSpecial:
         assert assess_gold_special(s) == []
 
     def test_both_gold_simultaneously(self):
-        s = make_stats(barrel_percent=20.0, avg_launch_angle=17.0,
-                       xba=0.310, whiff_percent=15.0)
+        s = make_stats(barrel_percent=16.5, avg_launch_angle=17.0,
+                       xba=0.300, whiff_percent=19.0)
         result = assess_gold_special(s)
         assert "アーチスト" in result
         assert "安打製造機" in result
@@ -467,75 +467,70 @@ class TestGoldSpecial:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestBlueSpecial:
     def test_katamari_uchi_triggers(self):
-        # 1試合3安打以上の試合 >= 8試合
-        s = make_stats(multi_hit_game_count=8)
+        # 新基準: 1試合3安打以上の試合 >= 6回
+        s = make_stats(multi_hit_game_count=6)
         assert "固め打ち" in assess_blue_special(s)
 
     def test_katamari_uchi_just_below(self):
-        s = make_stats(multi_hit_game_count=7)
+        s = make_stats(multi_hit_game_count=5)
         assert "固め打ち" not in assess_blue_special(s)
 
     def test_pull_hitter_triggers(self):
-        # 引っ張り方向HR% >= 80%
-        s = make_stats(pull_hr_pct=0.80)
+        # 新基準: 引っ張り方向HR% >= 55%
+        s = make_stats(pull_hr_pct=0.55)
         assert "プルヒッター" in assess_blue_special(s)
 
     def test_pull_hitter_just_below(self):
-        s = make_stats(pull_hr_pct=0.79)
+        s = make_stats(pull_hr_pct=0.54)
         assert "プルヒッター" not in assess_blue_special(s)
 
     def test_koukauku_triggers(self):
-        s = make_stats(oppo_hr_count=5)
+        # 新基準: 逆方向HR >= 4本
+        s = make_stats(oppo_hr_count=4)
         assert "広角打法" in assess_blue_special(s)
 
     def test_koukauku_just_below(self):
-        s = make_stats(oppo_hr_count=4)
+        s = make_stats(oppo_hr_count=3)
         assert "広角打法" not in assess_blue_special(s)
 
     def test_headsli_triggers(self):
-        # Sprint Speed >= 29.0 AND bolts >= 10
-        s = make_stats(sprint_speed=29.0, bolts=10)
+        # 新基準: Sprint Speed >= 28.5 のみ
+        s = make_stats(sprint_speed=28.5)
         assert "ヘッドスライディング" in assess_blue_special(s)
 
-    def test_headsli_requires_speed(self):
-        # sprint_speed < 29.0 → 付与しない
-        s = make_stats(sprint_speed=28.9, bolts=10)
-        assert "ヘッドスライディング" not in assess_blue_special(s)
-
-    def test_headsli_requires_bolts(self):
-        # bolts < 10 → 付与しない
-        s = make_stats(sprint_speed=29.0, bolts=9)
+    def test_headsli_just_below(self):
+        s = make_stats(sprint_speed=28.4)
         assert "ヘッドスライディング" not in assess_blue_special(s)
 
     def test_power_hitter_triggers(self):
-        # Barrel% >= 12% AND 平均打球角度 12〜18度
-        s = make_stats(barrel_percent=12.0, avg_launch_angle=15.0)
+        # 新基準: HR >= 22 + Barrel% >= 12%
+        s = make_stats(home_runs=22, barrel_percent=12.0)
         assert "パワーヒッター" in assess_blue_special(s)
 
     def test_power_hitter_barrel_just_below(self):
-        s = make_stats(barrel_percent=11.9, avg_launch_angle=15.0)
+        s = make_stats(home_runs=22, barrel_percent=11.9)
         assert "パワーヒッター" not in assess_blue_special(s)
 
-    def test_power_hitter_angle_out_of_range(self):
-        s = make_stats(barrel_percent=12.0, avg_launch_angle=11.9)
+    def test_power_hitter_hr_just_below(self):
+        s = make_stats(home_runs=21, barrel_percent=12.0)
         assert "パワーヒッター" not in assess_blue_special(s)
 
     def test_line_drive_triggers(self):
-        # 平均打球角度 10〜15度 AND Hard Hit% >= 45%
-        s = make_stats(avg_launch_angle=12.0, hard_hit_percent=45.0)
+        # 新基準: 打球角度 8〜14度 の打球割合 >= 25%
+        s = make_stats(linedrive_pct=25.0)
         assert "ラインドライブ" in assess_blue_special(s)
 
-    def test_line_drive_hard_hit_just_below(self):
-        s = make_stats(avg_launch_angle=12.0, hard_hit_percent=44.9)
+    def test_line_drive_just_below(self):
+        s = make_stats(linedrive_pct=24.9)
         assert "ラインドライブ" not in assess_blue_special(s)
 
     def test_avg_hitter_triggers(self):
-        # xBA >= .280 AND Whiff% <= 20%
-        s = make_stats(xba=0.280, whiff_percent=20.0)
+        # 新基準: 通算 xBA >= .285
+        s = make_stats(xba=0.285)
         assert "アベレージヒッター" in assess_blue_special(s)
 
     def test_avg_hitter_xba_just_below(self):
-        s = make_stats(xba=0.279, whiff_percent=20.0)
+        s = make_stats(xba=0.284)
         assert "アベレージヒッター" not in assess_blue_special(s)
 
     def test_no_blue_on_neutral_stats(self):
