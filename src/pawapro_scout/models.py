@@ -5,6 +5,7 @@ models.py
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Any
 
 
 # ────────────────────────────────────────────────
@@ -105,14 +106,17 @@ class BatterStats:
     # xBA パーセンタイル
     xba_percentile: int = 0
 
-    # スプリット (FanGraphs)
+    # スプリット (FanGraphs / Statcast 計算)
     risp_avg: float = 0.0
     risp_xba: float = 0.0              # 得点圏 xBA
+    risp_xslg: float = 0.0             # 得点圏 xSLG (Statcast計算)
     season_avg: float = 0.0
     vs_lhp_woba: float = 0.0
     vs_rhp_woba: float = 0.0
     vs_lhp_xba: float = 0.0
     vs_rhp_xba: float = 0.0
+    vs_lhp_xslg: float = 0.0           # 対左投手 xSLG (Statcast計算)
+    vs_rhp_xslg: float = 0.0           # 対右投手 xSLG (Statcast計算)
     vs_ace_xba: float = 0.0            # 対エース級投手 xBA
     pinch_hit_pa: int = 0              # 代打打席数
     pinch_hit_xba: float = 0.0         # 代打 xBA
@@ -122,6 +126,12 @@ class BatterStats:
     # Savant 捕手系
     framing_runs: float | None = None
     blocking_runs: float | None = None
+
+    # Statcast 簡易計算（FanGraphs/Savant API 取得不能時のフォールバック）
+    oaa_simplified: int = 0                       # 簡易 OAA (Statcast BIP位置計算)
+    arm_strength_simplified_mph: float | None = None  # 簡易 Arm Strength (mph)
+    framing_runs_simplified: float = 0.0          # 簡易 Framing (シャドウゾーン called_strike 率)
+    blocking_runs_simplified: float = 0.0         # 簡易 Blocking (パスボール/暴投頻度)
 
     # 打球方向 (Statcast pitch-level から算出)
     pull_hr_pct: float = 0.0           # 引っ張り方向HRの割合
@@ -232,14 +242,19 @@ class PitcherStats:
     hr_per_9: float = 0.0
     wpa: float = 0.0
 
-    # FanGraphs Splits
+    # FanGraphs Splits / Statcast 計算
     risp_xwoba: float = 0.0
     season_xwoba: float = 0.0
-    vs_lhp_xwoba: float = 0.0
-    vs_rhp_xwoba: float = 0.0
+    vs_lhp_xwoba: float = 0.0           # vs 左打者 xwOBA (旧基準互換: lhp=左投打者)
+    vs_rhp_xwoba: float = 0.0           # vs 右打者 xwOBA (旧基準互換)
+    vs_lhb_xwoba: float = 0.0           # vs 左打者 xwOBA (新基準, Statcast計算)
+    vs_rhb_xwoba: float = 0.0           # vs 右打者 xwOBA (新基準, Statcast計算)
     high_lev_xwoba: float = 0.0
     closer_xwoba: float = 0.0           # クローザー役割時 xwOBA (威圧感用)
     is_closer: bool = False             # クローザー判定
+
+    # 球種別メトリクス (Statcast pitch-level から計算)
+    pitch_metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # Savant Statcast Search
     inning1_xwoba: float = 0.0

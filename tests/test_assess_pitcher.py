@@ -360,8 +360,8 @@ class TestRankAbilities:
         assert assess_rank_abilities(stats)["打たれ強さ"] == "A"
 
     def test_ノビ_gold_on_high_ivb(self):
-        # 4seam IVB >= 20in → 金
-        stats = make_stats(pitches=[make_pitch("FF", ivb=20.0)])
+        # r1 仕様: 4seam IVB >= 21in → 金 (怪童)
+        stats = make_stats(pitches=[make_pitch("FF", ivb=21.0)])
         assert assess_rank_abilities(stats)["ノビ"] == "金"
 
     def test_対ピンチ_gold_on_great_diff(self):
@@ -374,13 +374,13 @@ class TestRankAbilities:
         stats = make_stats(risp_xwoba=0.420, season_xwoba=0.320)
         assert assess_rank_abilities(stats)["対ピンチ"] == "G"
 
-    def test_クイック_gold_on_high_cs_rate(self):
-        # CS率 60% (= 6/10) → 金 (QUICK_GOLD_CS_RATE=0.60)
-        stats = make_stats(sb_against=4, cs_against=6)
+    def test_クイック_gold_on_low_pop_time(self):
+        # r1 仕様: Pop Time <= 1.20s → 金 (走者釘付)
+        stats = make_stats(pop_time=1.20)
         assert assess_rank_abilities(stats)["クイック"] == "金"
 
     def test_クイック_default_c_on_no_data(self):
-        stats = make_stats(sb_against=0, cs_against=0)
+        stats = make_stats(pop_time=None)
         assert assess_rank_abilities(stats)["クイック"] == "C"
 
     def test_回復_c_on_155ip(self):

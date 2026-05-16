@@ -15,6 +15,7 @@ import pandas as pd
 
 from pawapro_scout.config import MIN_PITCH_USAGE_PCT
 from pawapro_scout.models import PitchAggregated, PitcherStats
+from pawapro_scout.aggregate import statcast_metrics as sm
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,14 @@ class PitcherAggregator:
         # ── bref フォールバック (Statcast events) ──────────
         sc_sb_against, sc_cs_against = self._statcast_bref_pitcher_fallback(statcast_pitcher)
 
+        # ── Statcast 限定計算 (r1 新仕様) ────────────────
+        sc_basic = sm.compute_basic_pitcher_metrics(statcast_pitcher)
+        sc_zone = sm.compute_zone_metrics_pitcher(statcast_pitcher)
+        sc_scene = sm.compute_pitcher_scene_xwoba(statcast_pitcher)
+        sc_sit = sm.compute_situational_metrics_pitcher(statcast_pitcher)
+        sc_release = sm.compute_release_stddev(statcast_pitcher)
+        sc_pitch_metrics = sm.compute_pitch_metrics_pitcher(statcast_pitcher)
+
         # ── 球種リスト (PitchAggregated) ─────────────────
         pitches = self._build_pitches(statcast_pitcher, pitch_arsenal)
 
@@ -144,61 +153,92 @@ class PitcherAggregator:
 
         return PitcherStats(
             # 基礎
-            max_velocity_mph = sc["max_velocity_mph"],
+            max_velocity_mph = sc["max_velocity_mph"] or sc_basic["max_velocity_mph"],
+            avg_velocity_mph = sc_basic["avg_velocity_mph"],
             pitches          = pitches,
 
-            # コントロール
-            k_percent   = _pct(row_fg,  "K%"),
-            bb_percent  = _pct(row_fg,  "BB%"),
+            # コントロール (FanGraphs > Statcast 計算)
+            k_percent   = _pct(row_fg,  "K%")  or sc_basic["k_percent"],
+            bb_percent  = _pct(row_fg,  "BB%") or sc_basic["bb_percent"],
+            zone_percent  = sc_basic["zone_percent"],
+            edge_percent  = sc_basic["edge_percent"],
             k_percentile  = int(_get(row_pct, "k_percent",  default=50)),
             bb_percentile = int(_get(row_pct, "bb_percent", default=50)),
 
             # スタミナ
             avg_pitches_per_game = avg_p_per_g,
-            games         = int(_get(row_fg, "G",  default=0)),
-            ip            = _get(row_fg, "IP", default=0.0),
-            games_started = int(_get(row_fg, "GS", default=0)),
+            games         = int(_get(row_fg, "G",  default=sc_basic["games"])),
+            ip            = _get(row_fg, "IP", default=sc_basic["ip"]),
+            games_started = int(_get(row_fg, "GS", default=sc_basic["games_started"])),
+            avg_relief_innings = sc_sit["avg_relief_innings"],
+            win_pct       = _get(row_fg, "W-L%", default=sc_sit["win_pct"]) if sc_sit["win_pct"] else _get(row_fg, "W-L%"),
+            er_per_9      = _get(row_fg, "ERA"),
 
             # 球威
             exit_vel_percentile = int(_get(row_pct, "exit_velocity_avg", default=50)),
-            hard_hit_percent    = _pct(row_fg, "Hard%", "HardHit%"),
+            avg_ev_against      = sc_basic["avg_ev_against"],
+            hard_hit_percent    = _pct(row_fg, "Hard%", "HardHit%") or sc_basic["hard_hit_percent"],
+            risp_hard_hit_pct   = sc_sit["risp_hard_hit_pct"],
 
             # ムーブメント
             extension_percentile = int(_get(row_pct, "pitch_hand_speed", "extension", default=50)),
+            extension_ft         = sc_basic["extension_ft"],
             active_spin_4seam    = float(active_spin) if active_spin is not None else None,
 
+            # 守備
+            p_fielding_rv = _get(row_pfd, "fielding_run_value", default=0.0),
+
             # LOB / 援護
-            lob_percent  = _pct(row_fg, "LOB%"),
-            hr_per_9     = _get(row_fg, "HR/9"),
+            lob_percent  = _pct(row_fg, "LOB%") or sc_basic["lob_percent"],
+            hr_per_9     = _get(row_fg, "HR/9", default=sc_basic["hr_per_9"]),
             wpa          = _get(row_fg, "WPA"),
             ir_stranded_pct = _pct(row_fg, "IR-S%", default=None) or None,  # type: ignore
 
-            # FanGraphs Splits
-            risp_xwoba     = xwoba_from_split(sp.get("risp")),
-            vs_lhp_xwoba   = xwoba_from_split(sp.get("vs_lhp")),
-            vs_rhp_xwoba   = xwoba_from_split(sp.get("vs_rhp")),
-            high_lev_xwoba = xwoba_from_split(sp.get("high_lev")),
+            # FanGraphs Splits / Statcast 計算 (FanGraphs > Statcast 順)
+            risp_xwoba     = xwoba_from_split(sp.get("risp")) or sc_scene["risp"],
+            season_xwoba   = sc_scene["season"],
+            vs_lhp_xwoba   = xwoba_from_split(sp.get("vs_lhp")) or sc_scene["vs_lhb"],
+            vs_rhp_xwoba   = xwoba_from_split(sp.get("vs_rhp")) or sc_scene["vs_rhb"],
+            vs_lhb_xwoba   = sc_scene["vs_lhb"],
+            vs_rhb_xwoba   = sc_scene["vs_rhb"],
+            high_lev_xwoba = xwoba_from_split(sp.get("high_lev")) or sc_sit["high_lev_xwoba"],
+            closer_xwoba   = sc_sit["closer_xwoba"],
+            is_closer      = sc_sit["is_closer"],
+            pitch_metrics  = sc_pitch_metrics,
 
-            # Savant Statcast Search
-            inning1_xwoba    = self._xwoba_from_search(savant_inning1),
-            inning7plus_xwoba= self._xwoba_from_search(savant_inning7plus),
-            pitch_100plus_rv = pitch_100_rv,
-            low_zone_pct     = low_zone_pct,
-            heart_zone_pct   = heart_zone_pct,
+            # Savant Statcast Search / Statcast 計算
+            inning1_xwoba    = self._xwoba_from_search(savant_inning1) or sc_sit["inning1_xwoba"],
+            inning2_xwoba    = sc_sit["inning2_xwoba"],
+            inning7plus_xwoba= self._xwoba_from_search(savant_inning7plus) or sc_sit["inning7plus_xwoba"],
+            pitch_100plus_rv = pitch_100_rv or sc_sit["pitch_100plus_rv"],
+            pitch_100plus_rv_improve = sc_sit["pitch_100plus_rv_improve"],
+            pitch_100plus_velo_decline = sc_sit["pitch_100plus_velo_decline"],
+            low_zone_pct     = low_zone_pct or sc_zone["low_zone_pct"],
+            heart_zone_pct   = heart_zone_pct or sc_zone["heart_zone_pct"],
+            inside_shadow_pct = sc_zone["inside_shadow_pct"],
+            inside_whiff_pct = sc_zone["inside_whiff_pct"],
+            cross_shadow_whiff_pct = sc_zone["cross_shadow_whiff_pct"],
+            breaking_offspeed_whiff_pct = sc_zone["breaking_offspeed_whiff_pct"],
+            late_pitch_whiff_diff = sc_sit["late_pitch_whiff_diff"],
+            xwoba_vs_top_hitters = sc_sit["xwoba_vs_top_hitters"],
+            rv_vs_top_hitters = sc_sit["rv_vs_top_hitters"],
+            upper_lineup_xwoba = sc_sit["upper_lineup_xwoba"],
+            lower_lineup_xwoba = sc_sit["lower_lineup_xwoba"],
+            inning5_or_9_xwoba_increase = sc_sit["inning5_or_9_xwoba_increase"],
+            post_hit_hard_hit_increase = sc_sit["post_hit_hard_hit_increase"],
+            monthly_rv_stddev = sc_sit["monthly_rv_stddev"],
 
-            # リリースポイント
-            release_x_stddev = rel_x_std,
-            release_z_stddev = rel_z_std,
+            # リリースポイント (Statcast計算優先)
+            release_x_stddev = sc_release["release_x_stddev"] or rel_x_std,
+            release_z_stddev = sc_release["release_z_stddev"] or rel_z_std,
 
             # bref (Statcast events でフォールバック)
-            pickoffs   = int(_get(row_bref, "PO", default=0)),
+            pickoffs   = int(_get(row_bref, "PO", default=sc_basic["pickoffs"])),
             sb_against = int(_get(row_bref, "SB", default=sc_sb_against)),
             cs_against = int(_get(row_bref, "CS", default=sc_cs_against)),
 
             # P-OAA
             p_oaa = int(_get(row_pfd, "outs_above_average", default=0)) or None,
-
-            season_xwoba = 0.0,  # 全体 xwOBA は pitcher_expected から別途設定可
         )
 
     # ──────────────────────────────────────────────
